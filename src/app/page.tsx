@@ -4,6 +4,7 @@ import React from 'react';
 import Navbar from '@/components/Navbar';
 import SiteFooter from '@/components/SiteFooter';
 import TrophySection from '@/components/TrophySection';
+import MatchCarousel from '@/components/MatchCarousel';
 import { useTournament } from '@/context/TournamentContext';
 import {
   LayoutGrid,
@@ -121,6 +122,9 @@ export default function Home() {
           </motion.div>
         </div>
       </section>
+
+      {/* Match carousel: recent results → today (live) → tomorrow */}
+      <MatchCarousel />
 
       {hasChampion && (
         <section className="max-w-[1400px] mx-auto w-full px-4 sm:px-6 lg:px-8 pt-12">
