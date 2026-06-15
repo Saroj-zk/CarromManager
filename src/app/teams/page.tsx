@@ -6,6 +6,7 @@ import Navbar from '@/components/Navbar';
 import PageHero from '@/components/PageHero';
 import SiteFooter from '@/components/SiteFooter';
 import TeamDetailModal from '@/components/TeamDetailModal';
+import { pointsFromSettings } from '@/lib/store';
 import { Search } from 'lucide-react';
 import { Team } from '@/lib/types';
 import { motion } from 'framer-motion';
@@ -35,9 +36,10 @@ export default function Teams() {
     const teamMatches = getTeamMatches(team.id);
     let won = 0, lost = 0, points = 0;
     const form: ('W' | 'L' | 'D')[] = [];
+    const pts = pointsFromSettings(settings);
     teamMatches.forEach((m) => {
-      if (m.winner_id === team.id) { won++; points += 2; form.push('W'); }
-      else if (m.winner_id === null) { points += settings.draw_points_enabled ? 1 : 0; form.push('D'); }
+      if (m.winner_id === team.id) { won++; points += pts.win; form.push('W'); }
+      else if (m.winner_id === null) { points += pts.draw; form.push('D'); }
       else { lost++; form.push('L'); }
     });
     const prob = stats.qualificationProbability[team.id] ?? 50;

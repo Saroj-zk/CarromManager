@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useTournament } from '@/context/TournamentContext';
 import Navbar from '@/components/Navbar';
 import SiteFooter from '@/components/SiteFooter';
@@ -22,6 +22,7 @@ import {
   KeyRound,
   Calendar,
   GitMerge,
+  Plus,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 
@@ -81,11 +82,23 @@ export default function Admin() {
   const [selectedTeamId, setSelectedTeamId] = useState('');
   const [teamName, setTeamName] = useState('');
   const [teamLogo, setTeamLogo] = useState('');
+  const [teamPlayers, setTeamPlayers] = useState<string[]>([]);
   const [teamMessage, setTeamMessage] = useState('');
+
+  // Scoring rules
+  const [winPts, setWinPts] = useState<number>(2);
+  const [drawPts, setDrawPts] = useState<number>(0);
+  const [scoringMsg, setScoringMsg] = useState('');
 
   // Passcode
   const [newPasscode, setNewPasscode] = useState('');
   const [passMessage, setPassMessage] = useState('');
+
+  // Keep the scoring inputs in sync with the saved settings.
+  useEffect(() => {
+    setWinPts(settings.points_per_win ?? 2);
+    setDrawPts(settings.points_per_draw ?? (settings.draw_points_enabled ? 1 : 0));
+  }, [settings.points_per_win, settings.points_per_draw, settings.draw_points_enabled]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importMessage, setImportMessage] = useState('');
@@ -125,14 +138,37 @@ export default function Admin() {
     }
   };
 
+  const persistMatch = async (a: number, b: number, status: MatchStatus, msg: string) => {
+    if (!selectedMatchId) return;
+    const iso = matchDate ? new Date(matchDate).toISOString() : undefined;
+    const result = await updateMatchScore(selectedMatchId, a, b, status === 'COMPLETED', status, iso);
+    setScoreMessage(result.ok ? msg : result.error || 'Failed to save.');
+    setTimeout(() => setScoreMessage(''), 3000);
+  };
+
   const handleSaveScore = async (e: React.FormEvent) => {
     e.preventDefault();
+    await persistMatch(scoreA, scoreB, matchStatus, 'Match updated successfully!');
+  };
+
+  // Bump a team's score with +/- buttons.
+  const bump = (side: 'A' | 'B', delta: number) => {
+    if (side === 'A') setScoreA((s) => Math.max(0, Math.min(99, s + delta)));
+    else setScoreB((s) => Math.max(0, Math.min(99, s + delta)));
+  };
+
+  // One-click result: ensure the chosen side wins, mark completed, save now.
+  const quickResult = async (winner: 'A' | 'B' | 'DRAW') => {
     if (!selectedMatchId) return;
-    const isCompleted = matchStatus === 'COMPLETED';
-    const iso = matchDate ? new Date(matchDate).toISOString() : undefined;
-    const result = await updateMatchScore(selectedMatchId, scoreA, scoreB, isCompleted, matchStatus, iso);
-    setScoreMessage(result.ok ? 'Match updated successfully!' : result.error || 'Failed to save.');
-    setTimeout(() => setScoreMessage(''), 3000);
+    let a = scoreA;
+    let b = scoreB;
+    if (winner === 'A') { if (a <= b) a = b + 1; }
+    else if (winner === 'B') { if (b <= a) b = a + 1; }
+    else { const m = Math.max(a, b); a = m; b = m; }
+    setScoreA(a);
+    setScoreB(b);
+    setMatchStatus('COMPLETED');
+    await persistMatch(a, b, 'COMPLETED', 'Result saved!');
   };
 
   const handleSelectTeam = (id: string) => {
@@ -141,15 +177,24 @@ export default function Admin() {
     if (team) {
       setTeamName(team.name);
       setTeamLogo(team.logo_url || '');
+      setTeamPlayers(team.players && team.players.length ? [...team.players] : ['', '', '', '']);
     }
   };
 
   const handleSaveTeam = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedTeamId) return;
-    const result = await updateTeam(selectedTeamId, teamName, teamLogo);
+    const cleaned = teamPlayers.map((p) => p.trim()).filter(Boolean);
+    const result = await updateTeam(selectedTeamId, teamName, teamLogo, cleaned);
     setTeamMessage(result.ok ? 'Team updated successfully!' : result.error || 'Failed.');
     setTimeout(() => setTeamMessage(''), 3000);
+  };
+
+  const handleSaveScoring = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const result = await updateSettings({ points_per_win: winPts, points_per_draw: drawPts });
+    setScoringMsg(result.ok ? 'Scoring rules updated.' : result.error || 'Failed.');
+    setTimeout(() => setScoringMsg(''), 3000);
   };
 
   const handlePublishNews = async (e: React.FormEvent) => {
@@ -348,36 +393,65 @@ export default function Admin() {
 
                 {selectedMatch && (
                   <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-5 border-t border-white/8 pt-5">
-                    <div className="grid grid-cols-2 gap-5">
-                      <div>
-                        <label className="block text-[9px] font-bold uppercase truncate mb-1.5" style={labelStyle}>
-                          {getTeamName(selectedMatch.team_a_id)}
-                        </label>
-                        <input type="number" min="0" max="99" value={scoreA} onChange={(e) => setScoreA(parseInt(e.target.value) || 0)} className={`${INPUT} text-center font-mono font-black text-xl`} />
-                      </div>
-                      <div>
-                        <label className="block text-[9px] font-bold uppercase truncate mb-1.5" style={labelStyle}>
-                          {getTeamName(selectedMatch.team_b_id)}
-                        </label>
-                        <input type="number" min="0" max="99" value={scoreB} onChange={(e) => setScoreB(parseInt(e.target.value) || 0)} className={`${INPUT} text-center font-mono font-black text-xl`} />
+                    {/* Score steppers */}
+                    <div className="grid grid-cols-2 gap-4">
+                      {(['A', 'B'] as const).map((side) => {
+                        const id = side === 'A' ? selectedMatch.team_a_id : selectedMatch.team_b_id;
+                        const val = side === 'A' ? scoreA : scoreB;
+                        return (
+                          <div key={side} className="bg-[#0f1015] border border-white/8 rounded-xl p-3 text-center">
+                            <div className="text-[10px] font-bold uppercase truncate mb-2" style={labelStyle}>{getTeamName(id)}</div>
+                            <div className="flex items-center justify-center gap-3">
+                              <button type="button" aria-label="decrease" onClick={() => bump(side, -1)} className="h-9 w-9 rounded-md bg-[#1b1d24] border border-white/10 text-white text-xl font-black leading-none hover:bg-[#23252e]">−</button>
+                              <span className="font-mono font-black text-2xl text-white w-10">{val}</span>
+                              <button type="button" aria-label="increase" onClick={() => bump(side, 1)} className="h-9 w-9 rounded-md bg-[#1b1d24] border border-white/10 text-white text-xl font-black leading-none hover:bg-[#23252e]">+</button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* One-click result */}
+                    <div>
+                      <label className={LABEL} style={labelStyle}>Quick Result · saves instantly</label>
+                      <div className="grid grid-cols-3 gap-2">
+                        <button type="button" onClick={() => quickResult('A')} className="py-2.5 px-2 rounded-md bg-success/15 text-success border border-success/30 text-[11px] font-black uppercase tracking-wide hover:bg-success/25 truncate">
+                          {getTeamName(selectedMatch.team_a_id)} won
+                        </button>
+                        <button type="button" onClick={() => quickResult('DRAW')} className="py-2.5 px-2 rounded-md bg-[#1b1d24] text-gray-300 border border-white/10 text-[11px] font-black uppercase tracking-wide hover:bg-[#23252e]">
+                          Draw
+                        </button>
+                        <button type="button" onClick={() => quickResult('B')} className="py-2.5 px-2 rounded-md bg-success/15 text-success border border-success/30 text-[11px] font-black uppercase tracking-wide hover:bg-success/25 truncate">
+                          {getTeamName(selectedMatch.team_b_id)} won
+                        </button>
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-                      <div>
-                        <label className={LABEL} style={labelStyle}>Status</label>
-                        <select value={matchStatus} onChange={(e) => setMatchStatus(e.target.value as MatchStatus)} className={INPUT}>
-                          <option value="UPCOMING">Upcoming</option>
-                          <option value="LIVE">Live</option>
-                          <option value="COMPLETED">Completed</option>
-                        </select>
+                    {/* Status buttons */}
+                    <div>
+                      <label className={LABEL} style={labelStyle}>Status</label>
+                      <div className="grid grid-cols-3 gap-2">
+                        {(['UPCOMING', 'LIVE', 'COMPLETED'] as MatchStatus[]).map((st) => (
+                          <button
+                            key={st}
+                            type="button"
+                            onClick={() => setMatchStatus(st)}
+                            className={`py-2 rounded-md text-xs font-black uppercase tracking-wide border transition-all ${
+                              matchStatus === st ? 'bg-accent text-[#15110a] border-accent' : 'bg-[#1b1d24] text-gray-400 border-white/10 hover:text-white'
+                            }`}
+                          >
+                            {st === 'UPCOMING' ? 'Upcoming' : st === 'LIVE' ? 'Live' : 'Completed'}
+                          </button>
+                        ))}
                       </div>
-                      <div>
-                        <label className={`${LABEL} flex items-center gap-1.5`} style={labelStyle}>
-                          <Calendar className="h-3 w-3" /> Date &amp; Time
-                        </label>
-                        <input type="datetime-local" value={matchDate} onChange={(e) => setMatchDate(e.target.value)} className={INPUT} />
-                      </div>
+                    </div>
+
+                    {/* Date */}
+                    <div>
+                      <label className={`${LABEL} flex items-center gap-1.5`} style={labelStyle}>
+                        <Calendar className="h-3 w-3" /> Date &amp; Time
+                      </label>
+                      <input type="datetime-local" value={matchDate} onChange={(e) => setMatchDate(e.target.value)} className={INPUT} />
                     </div>
 
                     {scoreMessage && (
@@ -386,7 +460,7 @@ export default function Admin() {
                       </p>
                     )}
                     <button type="submit" className="w-full py-3 btn-gold rounded-md font-display text-sm uppercase tracking-wider flex items-center justify-center gap-2">
-                      <Save className="h-4 w-4" /> Save Match
+                      <Save className="h-4 w-4" /> Save Match Details
                     </button>
                   </motion.div>
                 )}
@@ -486,6 +560,41 @@ export default function Admin() {
                       <label className="block text-[9px] font-bold uppercase mb-1.5" style={labelStyle}>Logo URL</label>
                       <input type="url" value={teamLogo} onChange={(e) => setTeamLogo(e.target.value)} placeholder="https://…" className={INPUT} />
                     </div>
+
+                    {/* Roster editor */}
+                    <div>
+                      <label className="block text-[9px] font-bold uppercase mb-1.5" style={labelStyle}>Roster / Players</label>
+                      <div className="space-y-2">
+                        {teamPlayers.map((p, i) => (
+                          <div key={i} className="flex items-center gap-2">
+                            <span className="flex items-center justify-center h-7 w-7 rounded-md bg-[#1b1d24] text-accent text-[10px] font-black shrink-0">{i + 1}</span>
+                            <input
+                              type="text"
+                              value={p}
+                              onChange={(e) => setTeamPlayers((arr) => arr.map((x, idx) => (idx === i ? e.target.value : x)))}
+                              placeholder={`Player ${i + 1} name`}
+                              className={`${INPUT} bg-[#15161c]`}
+                            />
+                            <button
+                              type="button"
+                              aria-label="Remove player"
+                              onClick={() => setTeamPlayers((arr) => arr.filter((_, idx) => idx !== i))}
+                              className="shrink-0 p-2 rounded-md bg-danger/10 hover:bg-danger/20 text-danger border border-danger/20"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setTeamPlayers((arr) => [...arr, ''])}
+                        className="mt-2 inline-flex items-center gap-1.5 text-accent hover:text-[var(--gold-bright)] text-xs font-black uppercase tracking-wider"
+                      >
+                        <Plus className="h-3.5 w-3.5" /> Add Player
+                      </button>
+                    </div>
+
                     {teamMessage && (
                       <p className="text-success text-xs font-bold text-center flex items-center justify-center gap-1.5">
                         <Check className="h-4 w-4" /> {teamMessage}
@@ -505,20 +614,25 @@ export default function Admin() {
                 <Database className="h-4.5 w-4.5 text-accent" /> Tournament Settings &amp; Data
               </h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {/* Draw rule */}
-                <div className="bg-[#0f1015] border border-white/8 p-4 rounded-xl flex flex-col justify-between">
-                  <div>
-                    <span className="text-[10px] font-black uppercase tracking-widest block mb-1" style={labelStyle}>Draw Points Rule</span>
-                    <p className="text-gray-400 text-xs mb-3 font-semibold leading-relaxed">Award 1 point to each team for a drawn game. Default is off.</p>
-                  </div>
-                  <button
-                    onClick={() => updateSettings({ draw_points_enabled: !settings.draw_points_enabled })}
-                    className={`w-full py-2.5 rounded-md text-xs font-black uppercase tracking-wider transition-all ${
-                      settings.draw_points_enabled ? 'bg-success/20 text-success border border-success/30' : 'bg-[#1b1d24] text-gray-400 border border-white/10'
-                    }`}
-                  >
-                    {settings.draw_points_enabled ? 'Enabled (1 P)' : 'Disabled (0 P)'}
-                  </button>
+                {/* Scoring rules */}
+                <div className="bg-[#0f1015] border border-white/8 p-4 rounded-xl flex flex-col gap-2.5">
+                  <span className="text-[10px] font-black uppercase tracking-widest block" style={labelStyle}>Scoring (points)</span>
+                  <form onSubmit={handleSaveScoring} className="flex flex-col gap-2">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[9px] font-bold uppercase mb-1" style={labelStyle}>Per Win</label>
+                        <input type="number" min="0" max="20" value={winPts} onChange={(e) => setWinPts(parseInt(e.target.value) || 0)} className={`${INPUT} bg-[#15161c] text-center`} />
+                      </div>
+                      <div>
+                        <label className="block text-[9px] font-bold uppercase mb-1" style={labelStyle}>Per Draw</label>
+                        <input type="number" min="0" max="20" value={drawPts} onChange={(e) => setDrawPts(parseInt(e.target.value) || 0)} className={`${INPUT} bg-[#15161c] text-center`} />
+                      </div>
+                    </div>
+                    <button type="submit" className="w-full py-2 rounded-md bg-[#1b1d24] border border-white/10 hover:bg-[#23252e] text-white font-display font-black text-xs uppercase tracking-wider transition-all">
+                      Update Scoring
+                    </button>
+                  </form>
+                  {scoringMsg && <p className="text-[10px] font-bold text-center text-accent">{scoringMsg}</p>}
                 </div>
                 {/* Passcode */}
                 <div className="bg-[#0f1015] border border-white/8 p-4 rounded-xl flex flex-col gap-2.5">

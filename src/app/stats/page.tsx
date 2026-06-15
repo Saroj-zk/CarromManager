@@ -6,13 +6,13 @@ import Navbar from '@/components/Navbar';
 import PageHero from '@/components/PageHero';
 import SiteFooter from '@/components/SiteFooter';
 import { BarChart3, Award, Percent, CheckCircle } from 'lucide-react';
-import { calculateStandings } from '@/lib/store';
+import { calculateStandings, pointsFromSettings } from '@/lib/store';
 
 export default function Stats() {
   const { teams, matches, settings, stats } = useTournament();
 
   const leagueMatches = matches.filter((m) => m.stage === 'LEAGUE');
-  const standings = calculateStandings(teams, leagueMatches, settings.draw_points_enabled);
+  const standings = calculateStandings(teams, leagueMatches, pointsFromSettings(settings));
   const leaderboard = [...standings]
     .sort((a, b) => b.points - a.points || b.board_difference - a.board_difference)
     .slice(0, 10);

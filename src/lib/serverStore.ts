@@ -21,6 +21,7 @@ import {
   generateLeagueFixtures,
   generateKnockoutPlaceholders,
   getResolvedKnockouts,
+  pointsFromSettings,
 } from './store';
 
 export interface TournamentState {
@@ -82,6 +83,8 @@ function buildSeedState(): TournamentState {
   const knockouts = generateKnockoutPlaceholders();
 
   const settings: TournamentSettings = {
+    points_per_win: 2,
+    points_per_draw: 0,
     draw_points_enabled: false,
     passcode: DEFAULT_PASSCODE,
     tournament_stage: 'LEAGUE',
@@ -128,6 +131,14 @@ async function load(): Promise<TournamentState> {
         news: Array.isArray(parsed.news) ? parsed.news : [],
         settings: {
           draw_points_enabled: !!parsed.settings.draw_points_enabled,
+          points_per_win:
+            typeof parsed.settings.points_per_win === 'number' ? parsed.settings.points_per_win : 2,
+          points_per_draw:
+            typeof parsed.settings.points_per_draw === 'number'
+              ? parsed.settings.points_per_draw
+              : parsed.settings.draw_points_enabled
+              ? 1
+              : 0,
           passcode: parsed.settings.passcode || DEFAULT_PASSCODE,
           tournament_stage: parsed.settings.tournament_stage || 'LEAGUE',
         },
@@ -179,6 +190,8 @@ export async function getPublicState(): Promise<TournamentState> {
     ...state,
     settings: {
       draw_points_enabled: state.settings.draw_points_enabled,
+      points_per_win: state.settings.points_per_win,
+      points_per_draw: state.settings.points_per_draw,
       tournament_stage: state.settings.tournament_stage,
     },
   };
@@ -226,7 +239,7 @@ export async function updateMatchScore(
     state.matches = getResolvedKnockouts(
       state.teams,
       state.matches,
-      state.settings.draw_points_enabled
+      pointsFromSettings(state.settings)
     );
   });
 }
@@ -238,6 +251,12 @@ export async function updateSettings(
     if (typeof partial.draw_points_enabled === 'boolean') {
       state.settings.draw_points_enabled = partial.draw_points_enabled;
     }
+    if (typeof partial.points_per_win === 'number' && partial.points_per_win >= 0) {
+      state.settings.points_per_win = Math.round(partial.points_per_win);
+    }
+    if (typeof partial.points_per_draw === 'number' && partial.points_per_draw >= 0) {
+      state.settings.points_per_draw = Math.round(partial.points_per_draw);
+    }
     if (partial.tournament_stage) {
       state.settings.tournament_stage = partial.tournament_stage;
     }
@@ -245,11 +264,11 @@ export async function updateSettings(
       state.settings.passcode = partial.passcode.trim();
     }
 
-    // Draw rule affects standings → re-resolve the bracket.
+    // Scoring affects standings → re-resolve the bracket.
     state.matches = getResolvedKnockouts(
       state.teams,
       state.matches,
-      state.settings.draw_points_enabled
+      pointsFromSettings(state.settings)
     );
   });
 }
@@ -284,7 +303,8 @@ export async function deleteNews(id: string): Promise<TournamentState> {
 export async function updateTeam(
   id: string,
   name: string,
-  logoUrl: string
+  logoUrl: string,
+  players?: string[]
 ): Promise<TournamentState> {
   return mutate((state) => {
     state.teams = state.teams.map((t) =>
@@ -293,6 +313,9 @@ export async function updateTeam(
             ...t,
             name: name.trim() || t.name,
             logo_url: logoUrl.trim() || t.logo_url,
+            players: Array.isArray(players)
+              ? players.map((p) => String(p).trim()).filter(Boolean)
+              : t.players,
           }
         : t
     );
@@ -316,7 +339,7 @@ export async function generateBracket(): Promise<TournamentState> {
     const standings = calculateStandings(
       state.teams,
       state.matches.filter((m) => m.stage === 'LEAGUE'),
-      state.settings.draw_points_enabled
+      pointsFromSettings(state.settings)
     );
     const winners = (group: string, slot: 0 | 1) => {
       const rows = standings.filter((s) => {
@@ -379,7 +402,7 @@ export async function setBracketTeams(
       };
     });
     // Re-resolve so downstream (auto) slots reflect the change.
-    state.matches = getResolvedKnockouts(state.teams, state.matches, state.settings.draw_points_enabled);
+    state.matches = getResolvedKnockouts(state.teams, state.matches, pointsFromSettings(state.settings));
   });
 }
 
@@ -407,6 +430,14 @@ export async function importState(
     if (incoming.settings) {
       state.settings = {
         draw_points_enabled: !!incoming.settings.draw_points_enabled,
+        points_per_win:
+          typeof incoming.settings.points_per_win === 'number' ? incoming.settings.points_per_win : 2,
+        points_per_draw:
+          typeof incoming.settings.points_per_draw === 'number'
+            ? incoming.settings.points_per_draw
+            : incoming.settings.draw_points_enabled
+            ? 1
+            : 0,
         // Never let an import silently overwrite the admin passcode.
         passcode: state.settings.passcode,
         tournament_stage: incoming.settings.tournament_stage || 'LEAGUE',

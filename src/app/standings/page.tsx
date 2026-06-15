@@ -6,7 +6,7 @@ import Navbar from '@/components/Navbar';
 import PageHero from '@/components/PageHero';
 import SectionTabs, { buildEventTabs } from '@/components/SectionTabs';
 import SiteFooter from '@/components/SiteFooter';
-import { calculateStandings } from '@/lib/store';
+import { calculateStandings, pointsFromSettings } from '@/lib/store';
 import { GroupName } from '@/lib/types';
 import { Download } from 'lucide-react';
 import html2canvas from 'html2canvas';
@@ -16,7 +16,7 @@ export default function Standings() {
   const [exporting, setExporting] = useState(false);
 
   const leagueMatches = matches.filter((m) => m.stage === 'LEAGUE');
-  const standings = calculateStandings(teams, leagueMatches, settings.draw_points_enabled);
+  const standings = calculateStandings(teams, leagueMatches, pointsFromSettings(settings));
   const groups: GroupName[] = ['A', 'B', 'C', 'D'];
 
   const exportAsImage = async () => {

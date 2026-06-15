@@ -6,6 +6,7 @@ import Navbar from '@/components/Navbar';
 import PageHero from '@/components/PageHero';
 import SectionTabs, { buildEventTabs } from '@/components/SectionTabs';
 import SiteFooter from '@/components/SiteFooter';
+import { pointsFromSettings } from '@/lib/store';
 import {
   Users,
   CalendarDays,
@@ -26,6 +27,8 @@ export default function Overview() {
       ? teams.find((t) => t.id === finalMatch.winner_id)
       : null;
 
+  const pts = pointsFromSettings(settings);
+
   const details = [
     { icon: Users, label: 'Teams', value: stats.totalTeams },
     { icon: LayoutGrid, label: 'Groups', value: 4 },
@@ -42,9 +45,7 @@ export default function Overview() {
     {
       icon: Award,
       title: 'Points System',
-      body: `2 points for a win, 0 for a loss. Draws award ${
-        settings.draw_points_enabled ? '1 point to each team' : '0 points (currently disabled)'
-      }.`,
+      body: `${pts.win} point${pts.win === 1 ? '' : 's'} for a win, ${pts.draw} for a draw, and 0 for a loss.`,
     },
     {
       icon: Scale,
@@ -121,7 +122,7 @@ export default function Overview() {
             {[
               { label: 'Format', value: 'League + Knockout' },
               { label: 'Schedule', value: 'June – July 2026' },
-              { label: 'Draw Points', value: settings.draw_points_enabled ? 'Enabled' : 'Disabled' },
+              { label: 'Points (W / D / L)', value: `${pts.win} / ${pts.draw} / 0` },
             ].map((d) => (
               <div key={d.label} className="surface rounded-2xl px-5 py-4 flex items-center justify-between">
                 <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--faint)' }}>{d.label}</span>

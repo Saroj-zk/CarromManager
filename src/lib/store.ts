@@ -1,4 +1,4 @@
-import { Team, Match, GroupName, StandingRow, NewsItem, TournamentSettings, TournamentStats, MatchStatus } from './types';
+import { Team, Match, GroupName, StandingRow, NewsItem, TournamentSettings, TournamentStats, MatchStatus, PointsConfig } from './types';
 
 // Seeding Data Definition
 export const SEED_TEAMS = [
@@ -181,8 +181,25 @@ export function seedScores(_teams: Team[], matches: Match[]): Match[] {
   return matches; // Return as-is: all UPCOMING, scores 0-0
 }
 
+// Resolve the effective scoring from tournament settings.
+export function pointsFromSettings(s: {
+  points_per_win?: number;
+  points_per_draw?: number;
+  draw_points_enabled?: boolean;
+}): PointsConfig {
+  return {
+    win: typeof s.points_per_win === 'number' ? s.points_per_win : 2,
+    draw:
+      typeof s.points_per_draw === 'number'
+        ? s.points_per_draw
+        : s.draw_points_enabled
+        ? 1
+        : 0,
+  };
+}
+
 // Calculate Standings Row for a specific group
-export function calculateStandings(teams: Team[], matches: Match[], drawEnabled: boolean): StandingRow[] {
+export function calculateStandings(teams: Team[], matches: Match[], points: PointsConfig): StandingRow[] {
   const standingsMap: { [teamId: string]: StandingRow } = {};
   
   // Initialize
@@ -227,17 +244,17 @@ export function calculateStandings(teams: Team[], matches: Match[], drawEnabled:
     if (diff > 0) {
       // Team A won
       tA.won += 1;
-      tA.points += 2;
+      tA.points += points.win;
       tA.form.push('W');
-      
+
       tB.lost += 1;
       tB.form.push('L');
     } else if (diff < 0) {
       // Team B won
       tB.won += 1;
-      tB.points += 2;
+      tB.points += points.win;
       tB.form.push('W');
-      
+
       tA.lost += 1;
       tA.form.push('L');
     } else {
@@ -246,10 +263,8 @@ export function calculateStandings(teams: Team[], matches: Match[], drawEnabled:
       tB.drawn += 1;
       tA.form.push('D');
       tB.form.push('D');
-      if (drawEnabled) {
-        tA.points += 1;
-        tB.points += 1;
-      }
+      tA.points += points.draw;
+      tB.points += points.draw;
     }
   });
   
@@ -308,11 +323,11 @@ export function calculateStandings(teams: Team[], matches: Match[], drawEnabled:
 //
 // Returns ALL matches (league + resolved knockouts) so callers can safely
 // replace their match list with the result.
-export function getResolvedKnockouts(teams: Team[], matches: Match[], drawEnabled: boolean): Match[] {
+export function getResolvedKnockouts(teams: Team[], matches: Match[], points: PointsConfig): Match[] {
   const leagueMatches = matches.filter(m => m.stage === 'LEAGUE');
   const koMatches = matches.filter(m => m.stage !== 'LEAGUE');
 
-  const standings = calculateStandings(teams, leagueMatches, drawEnabled);
+  const standings = calculateStandings(teams, leagueMatches, points);
 
   // A group is "decided" once every one of its league fixtures is completed.
   const isGroupComplete = (group: GroupName): boolean => {
@@ -369,8 +384,8 @@ export function getResolvedKnockouts(teams: Team[], matches: Match[], drawEnable
 }
 
 // Generate tournament statistics
-export function calculateStats(teams: Team[], matches: Match[], drawEnabled: boolean): TournamentStats {
-  const standings = calculateStandings(teams, matches.filter(m => m.stage === 'LEAGUE'), drawEnabled);
+export function calculateStats(teams: Team[], matches: Match[], points: PointsConfig): TournamentStats {
+  const standings = calculateStandings(teams, matches.filter(m => m.stage === 'LEAGUE'), points);
   
   const totalMatches = matches.length;
   const matchesPlayed = matches.filter(m => m.is_completed).length;

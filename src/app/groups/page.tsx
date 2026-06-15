@@ -8,7 +8,7 @@ import PageHero from '@/components/PageHero';
 import SectionTabs, { buildEventTabs } from '@/components/SectionTabs';
 import SiteFooter from '@/components/SiteFooter';
 import TeamDetailModal from '@/components/TeamDetailModal';
-import { calculateStandings } from '@/lib/store';
+import { calculateStandings, pointsFromSettings } from '@/lib/store';
 import { GroupName, Team } from '@/lib/types';
 import { Award, ArrowRight } from 'lucide-react';
 import { motion } from 'framer-motion';
@@ -19,7 +19,7 @@ export default function Groups() {
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
 
   const leagueMatches = matches.filter((m) => m.stage === 'LEAGUE');
-  const standings = calculateStandings(teams, leagueMatches, settings.draw_points_enabled);
+  const standings = calculateStandings(teams, leagueMatches, pointsFromSettings(settings));
   const groupStandings = standings.filter((row) => {
     const team = teams.find((t) => t.id === row.team_id);
     return team?.group_name === activeGroup;

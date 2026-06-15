@@ -57,11 +57,19 @@ export interface NewsItem {
 }
 
 export interface TournamentSettings {
-  draw_points_enabled: boolean;
+  // Configurable scoring. Falls back to the legacy draw toggle / 2-1-0 defaults.
+  points_per_win?: number;
+  points_per_draw?: number;
+  draw_points_enabled?: boolean; // legacy; superseded by points_per_draw
   // Only ever present server-side; stripped from the public API payload so it
   // is never shipped to clients. Admin auth happens via the login endpoint.
   passcode?: string;
   tournament_stage: 'LEAGUE' | 'KNOCKOUT';
+}
+
+export interface PointsConfig {
+  win: number;
+  draw: number;
 }
 
 export interface TournamentStats {

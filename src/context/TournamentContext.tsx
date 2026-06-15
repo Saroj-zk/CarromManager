@@ -16,7 +16,7 @@ import {
   TournamentStats,
   MatchStatus,
 } from '../lib/types';
-import { calculateStats } from '../lib/store';
+import { calculateStats, pointsFromSettings } from '../lib/store';
 
 interface MutationResult {
   ok: boolean;
@@ -61,7 +61,8 @@ interface TournamentContextType {
   updateTeam: (
     id: string,
     name: string,
-    logoUrl: string
+    logoUrl: string,
+    players?: string[]
   ) => Promise<MutationResult>;
   resetTournamentData: () => Promise<MutationResult>;
   importData: (data: Partial<TournamentState>) => Promise<MutationResult>;
@@ -232,8 +233,8 @@ export function TournamentProvider({ children }: { children: React.ReactNode }) 
   );
 
   const updateTeam = useCallback(
-    (id: string, name: string, logoUrl: string) =>
-      adminPost('team', { id, name, logoUrl }),
+    (id: string, name: string, logoUrl: string, players?: string[]) =>
+      adminPost('team', { id, name, logoUrl, players }),
     [adminPost]
   );
 
@@ -256,7 +257,7 @@ export function TournamentProvider({ children }: { children: React.ReactNode }) 
   );
 
   // Stats derive from the current state.
-  const stats = calculateStats(teams, matches, settings.draw_points_enabled);
+  const stats = calculateStats(teams, matches, pointsFromSettings(settings));
 
   return (
     <TournamentContext.Provider

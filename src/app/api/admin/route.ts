@@ -87,13 +87,19 @@ export async function POST(request: NextRequest) {
     }
 
     case 'team': {
-      const { id, name, logoUrl } = payload as {
+      const { id, name, logoUrl, players } = payload as {
         id: string;
         name: string;
         logoUrl: string;
+        players?: string[];
       };
       if (!id) return json({ error: 'id is required.' }, 400);
-      await updateTeam(id, String(name ?? ''), String(logoUrl ?? ''));
+      await updateTeam(
+        id,
+        String(name ?? ''),
+        String(logoUrl ?? ''),
+        Array.isArray(players) ? players : undefined
+      );
       break;
     }
 
