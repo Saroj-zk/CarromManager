@@ -1,0 +1,321 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Outfit:wght@400;500;600;700;800;900&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #0f172a;
+  --color-primary-light: #1e293b;
+  --color-secondary: #3b82f6;
+  --color-secondary-light: #60a5fa;
+  --color-accent: #e0a93d;
+  --color-accent-dark: #c8913a;
+  --color-success: #2bd17e;
+  --color-danger: #ef4444;
+  --color-card-dark: #111827;
+  --color-card-light: #ffffff;
+
+  --font-sans: 'Inter', sans-serif;
+  --font-display: 'Outfit', sans-serif;
+
+  --animate-pulse-slow: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  --animate-float: float 4s ease-in-out infinite;
+  --animate-glow: glow 2s ease-in-out infinite alternate;
+}
+
+/* ── Design tokens (esports dark theme) ───────────────────────────────────── */
+:root {
+  --background: #0a0a0e;
+  --foreground: #f4f5f7;
+
+  --surface: #15161c;       /* cards, rows */
+  --surface-2: #1b1d24;     /* elevated / hover */
+  --surface-3: #23252e;
+
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.16);
+
+  --muted: #9aa0ab;
+  --faint: #5b606b;
+
+  --gold: #e0a93d;
+  --gold-bright: #f4c662;
+
+  --header-bar: #c9ccd2;
+  --header-bar-text: #14151a;
+
+  /* legacy aliases still referenced by some components */
+  --card-bg: #15161c;
+  --card-border: rgba(255, 255, 255, 0.08);
+  --text-muted: #9aa0ab;
+  --accent-glow: rgba(224, 169, 61, 0.18);
+}
+
+* {
+  box-sizing: border-box;
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  overflow-x: hidden;
+}
+
+/* ── Scrollbar ────────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--background); }
+::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.12); border-radius: 6px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.22); }
+.scrollbar-none { scrollbar-width: none; -ms-overflow-style: none; }
+.scrollbar-none::-webkit-scrollbar { display: none; }
+
+/* ── Surfaces ─────────────────────────────────────────────────────────────── */
+.glass-panel {
+  background: rgba(14, 15, 20, 0.85);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid var(--border);
+}
+
+.surface {
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+.glass-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  transition: transform 0.18s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.18s ease, background 0.18s ease;
+}
+.glass-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--border-strong);
+  background: var(--surface-2);
+}
+
+/* ── Status pill (light, dark text) ───────────────────────────────────────── */
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: #f4f5f7;
+  color: #0a0a0e;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.meta-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* ── Section selector cards ───────────────────────────────────────────────── */
+.section-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 18px;
+  min-width: 150px;
+  border-radius: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.16s ease, border-color 0.16s ease;
+}
+.section-card:hover { background: var(--surface-2); }
+.section-card.is-active {
+  background: var(--surface-2);
+  border-color: var(--border-strong);
+}
+.section-card.is-active::after {
+  content: '';
+  display: block;
+  height: 2px;
+  margin-top: 6px;
+  border-radius: 2px;
+  background: var(--gold);
+}
+.section-card__label {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.section-card__value {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--foreground);
+}
+
+/* ── Round / column header bar (light) ────────────────────────────────────── */
+.round-header {
+  background: var(--header-bar);
+  color: var(--header-bar-text);
+  border-radius: 8px;
+  padding: 9px 16px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+/* ── Match card (bracket + schedule) ──────────────────────────────────────── */
+.match-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.match-team {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  position: relative;
+  border-left: 3px solid transparent;
+  transition: background 0.15s ease;
+}
+.match-team + .match-team { border-top: 1px solid var(--border); }
+.match-team__name {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.match-team__score {
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--faint);
+  min-width: 18px;
+  text-align: right;
+}
+.match-team.is-winner { border-left-color: var(--gold); background: rgba(224, 169, 61, 0.06); }
+.match-team.is-winner .match-team__name { color: #fff; }
+.match-team.is-winner .match-team__score { color: var(--gold-bright); }
+.match-team.is-clickable { cursor: pointer; }
+.match-team.is-clickable:hover { background: var(--surface-2); }
+.match-team.is-predicted { border-left-color: var(--gold); background: rgba(224, 169, 61, 0.1); }
+.match-team.is-predicted .match-team__name { color: #fff; }
+
+/* ── Bracket ──────────────────────────────────────────────────────────────── */
+/* Fixed-width cards + a connector lane between columns. Elbow connector lines
+   are drawn as an SVG overlay measured from the actual card positions. */
+.bracket { display: flex; height: 480px; }
+.bracket-col {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 250px;
+}
+.bracket-col:not(:last-child) { margin-right: 60px; }
+.bracket-col__title { margin-bottom: 18px; }
+.bracket-col__body {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-around;
+  flex: 1;
+}
+.bracket-matchup {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.bracket-matchup__card { width: 100%; }
+
+/* ── Rank / data table ────────────────────────────────────────────────────── */
+.rank-table { width: 100%; border-collapse: collapse; }
+.rank-table thead th {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--faint);
+  padding: 12px 14px;
+  text-align: center;
+  border-bottom: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.02);
+}
+.rank-table tbody tr { border-bottom: 1px solid var(--border); transition: background 0.14s ease; }
+.rank-table tbody tr:hover { background: var(--surface-2); }
+.rank-table td { padding: 12px 14px; font-size: 14px; text-align: center; }
+/* The team column (always 2nd) stays left-aligned; headers + values line up. */
+.rank-table thead th:nth-child(2),
+.rank-table td:nth-child(2) { text-align: left; }
+
+/* ── Schedule rows ────────────────────────────────────────────────────────── */
+.day-label {
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.sched-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 18px;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.sched-row:hover { border-color: var(--border-strong); background: var(--surface-2); }
+
+/* ── Buttons ──────────────────────────────────────────────────────────────── */
+.btn-gold {
+  background: var(--gold);
+  color: #15110a;
+  font-weight: 800;
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+.btn-gold:hover { background: var(--gold-bright); }
+
+/* ── Glows / text effects ─────────────────────────────────────────────────── */
+.glow-text-gold { text-shadow: 0 0 18px rgba(224, 169, 61, 0.45); }
+
+/* ── Animations ───────────────────────────────────────────────────────────── */
+@keyframes float {
+  0%, 100% { transform: translateY(0px) rotate(0deg); }
+  50% { transform: translateY(-10px) rotate(2deg); }
+}
+@keyframes glow {
+  from { box-shadow: 0 0 10px rgba(224, 169, 61, 0.2), 0 0 20px rgba(224, 169, 61, 0.1); }
+  to { box-shadow: 0 0 20px rgba(224, 169, 61, 0.4), 0 0 30px rgba(224, 169, 61, 0.2); }
+}
+.animate-float-trophy { animation: float 6s ease-in-out infinite; }
+
+@keyframes spin-slow { to { transform: rotate(360deg); } }
+.animate-spin-slow { animation: spin-slow 8s linear infinite; }
+
+/* Live badge pulsing */
+.pulse-badge { position: relative; }
+.pulse-badge::before {
+  content: '';
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 100%; height: 100%;
+  border-radius: 50%;
+  background-color: var(--color-danger);
+  opacity: 0.6;
+  animation: ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
