@@ -24,6 +24,8 @@ import {
   Calendar,
   GitMerge,
   Plus,
+  FileText,
+  AlertTriangle,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 
@@ -54,7 +56,9 @@ export default function Admin() {
     deleteNews,
     updateTeam,
     resetTournamentData,
+    resetEntireTournament,
     importData,
+    importSchedule,
     generateBracket,
     setBracketTeams,
   } = useTournament();
@@ -108,6 +112,11 @@ export default function Admin() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importMessage, setImportMessage] = useState('');
+
+  // Schedule import
+  const scheduleInputRef = useRef<HTMLInputElement>(null);
+  const [scheduleMsg, setScheduleMsg] = useState('');
+  const [scheduleBusy, setScheduleBusy] = useState(false);
 
   // Bracket editor
   const [bracketSel, setBracketSel] = useState<Record<string, { a?: string; b?: string }>>({});
@@ -235,11 +244,58 @@ export default function Admin() {
     setTimeout(() => setPassMessage(''), 4000);
   };
 
+  const handleScheduleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setScheduleBusy(true);
+    setScheduleMsg('Reading file…');
+    try {
+      const { parseScheduleFile } = await import('@/lib/scheduleImport');
+      const { rows, note } = await parseScheduleFile(file);
+      if (rows.length === 0) {
+        setScheduleMsg('No matches detected. Check the format — the CSV template works best.');
+        return;
+      }
+      if (!confirm(`Found ${rows.length} matches. Replace the entire tournament with this schedule?`)) {
+        return;
+      }
+      const result = await importSchedule(rows);
+      setSelectedMatchId('');
+      setSelectedTeamId('');
+      setScheduleMsg(result.ok ? `Imported ${rows.length} matches successfully. ${note}` : result.error || 'Import failed.');
+    } catch (err) {
+      setScheduleMsg('Could not read file: ' + (err instanceof Error ? err.message : 'unknown error'));
+    } finally {
+      setScheduleBusy(false);
+      if (scheduleInputRef.current) scheduleInputRef.current.value = '';
+      setTimeout(() => setScheduleMsg(''), 9000);
+    }
+  };
+
+  const downloadTemplate = async () => {
+    const { CSV_TEMPLATE } = await import('@/lib/scheduleImport');
+    const blob = new Blob([CSV_TEMPLATE], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'pocket-masters-schedule-template.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleFullReset = async () => {
+    if (!confirm('DELETE the entire tournament and start over? This wipes ALL teams, fixtures, results and announcements back to the default seed. This cannot be undone.')) return;
+    const result = await resetEntireTournament();
+    setSelectedMatchId('');
+    setSelectedTeamId('');
+    alert(result.ok ? 'Tournament fully reset to defaults.' : result.error || 'Failed to reset.');
+  };
+
   const handleReset = async () => {
-    if (confirm('WARNING: Reset all scores, standings and brackets to default? This cannot be undone.')) {
+    if (confirm('Reset all match scores and the bracket (teams are kept)? This cannot be undone.')) {
       await resetTournamentData();
       setSelectedMatchId('');
-      alert('Tournament data has been reset.');
+      alert('Match results have been reset.');
     }
   };
 
@@ -602,6 +658,46 @@ export default function Admin() {
               {bracketMsg && <p className="text-[11px] font-bold text-center text-accent mt-3">{bracketMsg}</p>}
             </section>
 
+            {/* Import schedule */}
+            <section className="surface rounded-2xl p-6">
+              <h3 className="font-display font-black text-sm tracking-wider uppercase text-white border-b border-white/8 pb-3.5 mb-5 flex items-center gap-2">
+                <FileText className="h-4.5 w-4.5 text-accent" /> Import Schedule
+              </h3>
+              <p className="text-gray-400 text-xs font-semibold leading-relaxed mb-4">
+                Upload your schedule as <span className="text-white">Excel (.xlsx)</span>, <span className="text-white">CSV</span>,{' '}
+                <span className="text-white">Word (.docx)</span> or <span className="text-white">PDF</span> and the system builds the whole
+                tournament — teams, groups and fixtures — automatically. Spreadsheets give the most reliable results; use columns:
+                <span className="text-white"> Group, Team A, Team B, Date, Time, Score A, Score B</span>.
+              </p>
+              <div className="flex flex-col sm:flex-row gap-3">
+                <button
+                  onClick={() => scheduleInputRef.current?.click()}
+                  disabled={scheduleBusy}
+                  className="flex-1 py-2.5 px-4 btn-gold rounded-md font-display text-xs uppercase tracking-wider flex items-center justify-center gap-2 disabled:opacity-60"
+                >
+                  <Upload className="h-4 w-4" /> {scheduleBusy ? 'Reading…' : 'Upload Schedule'}
+                </button>
+                <button
+                  onClick={downloadTemplate}
+                  className="flex-1 py-2.5 px-4 rounded-md bg-[#1b1d24] border border-white/10 hover:bg-[#23252e] text-white font-display font-black text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2"
+                >
+                  <Download className="h-4 w-4" /> Download CSV Template
+                </button>
+                <input
+                  ref={scheduleInputRef}
+                  type="file"
+                  accept=".xlsx,.xls,.csv,.docx,.pdf"
+                  onChange={handleScheduleFile}
+                  className="hidden"
+                />
+              </div>
+              {scheduleMsg && (
+                <p className={`text-xs font-bold text-center mt-3 ${scheduleMsg.includes('success') || scheduleMsg.includes('Imported') ? 'text-success' : 'text-accent'}`}>
+                  {scheduleMsg}
+                </p>
+              )}
+            </section>
+
             {/* Team editor */}
             <section className="surface rounded-2xl p-6">
               <h3 className="font-display font-black text-sm tracking-wider uppercase text-white border-b border-white/8 pb-3.5 mb-5 flex items-center gap-2">
@@ -736,20 +832,31 @@ export default function Admin() {
                 </div>
                 {/* Backup / import / reset */}
                 <div className="bg-[#0f1015] border border-white/8 p-4 rounded-xl flex flex-col gap-3 sm:col-span-2">
-                  <span className="text-[10px] font-black uppercase tracking-widest" style={labelStyle}>Backup, Restore &amp; Reset</span>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <span className="text-[10px] font-black uppercase tracking-widest" style={labelStyle}>Backup &amp; Restore</span>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <button onClick={handleExportJSON} className="w-full py-2.5 rounded-md bg-[#1b1d24] border border-white/10 hover:bg-[#23252e] text-white font-display font-black text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2">
-                      <Download className="h-3.5 w-3.5" /> Export
+                      <Download className="h-3.5 w-3.5" /> Export Backup
                     </button>
                     <button onClick={() => fileInputRef.current?.click()} className="w-full py-2.5 rounded-md bg-[#1b1d24] border border-white/10 hover:bg-[#23252e] text-white font-display font-black text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2">
-                      <Upload className="h-3.5 w-3.5" /> Import
+                      <Upload className="h-3.5 w-3.5" /> Import Backup
                     </button>
                     <input ref={fileInputRef} type="file" accept="application/json" onChange={handleImportFile} className="hidden" />
-                    <button onClick={handleReset} className="w-full py-2.5 rounded-md bg-danger/10 hover:bg-danger/20 text-danger border border-danger/30 font-display font-black text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2">
-                      <RefreshCw className="h-3.5 w-3.5" /> Reset
-                    </button>
                   </div>
                   {importMessage && <p className="text-[10px] font-bold text-center text-accent">{importMessage}</p>}
+
+                  <span className="text-[10px] font-black uppercase tracking-widest mt-2" style={labelStyle}>Danger Zone</span>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <button onClick={handleReset} className="w-full py-2.5 rounded-md bg-danger/10 hover:bg-danger/20 text-danger border border-danger/30 font-display font-black text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2">
+                      <RefreshCw className="h-3.5 w-3.5" /> Reset Scores
+                    </button>
+                    <button onClick={handleFullReset} className="w-full py-2.5 rounded-md bg-danger/20 hover:bg-danger/30 text-danger border border-danger/50 font-display font-black text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2">
+                      <AlertTriangle className="h-3.5 w-3.5" /> Reset Entire Tournament
+                    </button>
+                  </div>
+                  <p className="text-[10px] leading-relaxed" style={labelStyle}>
+                    <span className="text-danger font-bold">Reset Scores</span> clears match results but keeps teams.{' '}
+                    <span className="text-danger font-bold">Reset Entire Tournament</span> wipes everything back to the default seed.
+                  </p>
                 </div>
               </div>
             </section>

@@ -11,6 +11,9 @@ import {
   importState,
   generateBracket,
   setBracketTeams,
+  fullReset,
+  importScheduleRows,
+  type ScheduleRow,
 } from '@/lib/serverStore';
 
 export const dynamic = 'force-dynamic';
@@ -105,6 +108,20 @@ export async function POST(request: NextRequest) {
 
     case 'reset': {
       await resetTournament();
+      break;
+    }
+
+    case 'reset:full': {
+      await fullReset();
+      break;
+    }
+
+    case 'import:schedule': {
+      const { rows } = payload as { rows?: ScheduleRow[] };
+      if (!Array.isArray(rows) || rows.length === 0) {
+        return json({ error: 'No schedule rows were provided.' }, 400);
+      }
+      await importScheduleRows(rows);
       break;
     }
 

@@ -14,6 +14,7 @@ import {
   NewsItem,
   TournamentSettings,
   MatchStatus,
+  GroupName,
 } from './types';
 import {
   SEED_TEAMS,
@@ -414,6 +415,18 @@ export async function resetTournament(): Promise<TournamentState> {
   });
 }
 
+/**
+ * Wipe the entire tournament back to the default Pocket Masters seed — teams,
+ * fixtures, news and settings — keeping only the current admin passcode.
+ */
+export async function fullReset(): Promise<TournamentState> {
+  return mutate((state) => {
+    const fresh = buildSeedState();
+    fresh.settings.passcode = state.settings.passcode; // don't lock the admin out
+    return fresh;
+  });
+}
+
 export async function importState(
   incoming: Partial<TournamentState>
 ): Promise<TournamentState> {
@@ -443,6 +456,138 @@ export async function importState(
         tournament_stage: incoming.settings.tournament_stage || 'LEAGUE',
       };
     }
+  });
+}
+
+// ── Schedule import ─────────────────────────────────────────────────────────
+
+export interface ScheduleRow {
+  group?: string; // "A" / "Group A" / "QF" / "Semifinal" / "Final" …
+  teamA: string;
+  teamB: string;
+  date?: string;
+  time?: string;
+  scoreA?: number | null;
+  scoreB?: number | null;
+}
+
+const GROUPS: GroupName[] = ['A', 'B', 'C', 'D'];
+
+function normalizeStage(raw?: string): { kind: 'LEAGUE' | 'QF' | 'SF' | 'FINAL'; groupRaw: string } {
+  const s = (raw || '').toLowerCase().trim();
+  if (/\b(qf|quarter)/.test(s)) return { kind: 'QF', groupRaw: '' };
+  if (/\b(sf|semi)/.test(s)) return { kind: 'SF', groupRaw: '' };
+  if (/final/.test(s)) return { kind: 'FINAL', groupRaw: '' };
+  return { kind: 'LEAGUE', groupRaw: (raw || '').trim() };
+}
+
+function parseWhen(date?: string, time?: string, fallbackIdx = 0): string {
+  const base = [date, time].filter(Boolean).join(' ').trim();
+  const ts = base ? Date.parse(base) : NaN;
+  if (!Number.isNaN(ts)) return new Date(ts).toISOString();
+  return new Date(Date.parse('2026-06-11T10:00:00Z') + fallbackIdx * 3 * 3600 * 1000).toISOString();
+}
+
+/**
+ * Build a complete tournament (teams, league fixtures, knockout bracket) from a
+ * list of parsed schedule rows, then replace the current state with it. Distinct
+ * league groups are mapped to A–D in order of first appearance.
+ */
+export async function importScheduleRows(rows: ScheduleRow[]): Promise<TournamentState> {
+  return mutate((state) => {
+    const leagueRows: { groupRaw: string; teamA: string; teamB: string; date?: string; time?: string; scoreA?: number | null; scoreB?: number | null }[] = [];
+    const koRows: { kind: 'QF' | 'SF' | 'FINAL'; date?: string; time?: string }[] = [];
+
+    for (const r of rows) {
+      if (!r || !r.teamA || !r.teamB) continue;
+      const st = normalizeStage(r.group);
+      if (st.kind === 'LEAGUE') {
+        leagueRows.push({ groupRaw: st.groupRaw, teamA: String(r.teamA).trim(), teamB: String(r.teamB).trim(), date: r.date, time: r.time, scoreA: r.scoreA, scoreB: r.scoreB });
+      } else {
+        koRows.push({ kind: st.kind, date: r.date, time: r.time });
+      }
+    }
+
+    // Map distinct league group labels → A..D.
+    const groupMap = new Map<string, GroupName>();
+    const keyOf = (raw?: string) => (raw || 'A').toUpperCase().replace(/^GROUP\s*/, '').replace(/^POOL\s*/, '').trim() || 'A';
+    for (const r of leagueRows) {
+      const k = keyOf(r.groupRaw);
+      if (!groupMap.has(k) && groupMap.size < 4) groupMap.set(k, GROUPS[groupMap.size]);
+    }
+    if (groupMap.size === 0) groupMap.set('A', 'A');
+    const groupOf = (raw?: string): GroupName => groupMap.get(keyOf(raw)) || GROUPS[0];
+
+    // Collect teams (name → group), league rows first.
+    const teamGroup = new Map<string, GroupName>();
+    for (const r of leagueRows) {
+      const g = groupOf(r.groupRaw);
+      for (const n of [r.teamA, r.teamB]) if (n && !teamGroup.has(n)) teamGroup.set(n, g);
+    }
+    if (teamGroup.size === 0) return; // nothing usable
+
+    // Build team records with codes/ids.
+    const counts: Record<string, number> = {};
+    const nameToId = new Map<string, string>();
+    const teams: Team[] = [];
+    for (const [name, g] of teamGroup) {
+      counts[g] = (counts[g] || 0) + 1;
+      const code = `${g}${counts[g]}`;
+      const id = `team-${code.toLowerCase()}`;
+      nameToId.set(name, id);
+      teams.push({
+        id,
+        name,
+        code,
+        group_name: g,
+        logo_url: `https://api.dicebear.com/7.x/identicon/svg?seed=${encodeURIComponent(name)}`,
+        players: [],
+      });
+    }
+
+    // League matches.
+    const league: Match[] = [];
+    let li = 0;
+    for (const r of leagueRows) {
+      const aId = nameToId.get(r.teamA);
+      const bId = nameToId.get(r.teamB);
+      if (!aId || !bId || aId === bId) continue;
+      li++;
+      const hasScore =
+        r.scoreA !== undefined && r.scoreA !== null && r.scoreB !== undefined && r.scoreB !== null &&
+        !Number.isNaN(Number(r.scoreA)) && !Number.isNaN(Number(r.scoreB));
+      const sA = hasScore ? clampScore(r.scoreA) : 0;
+      const sB = hasScore ? clampScore(r.scoreB) : 0;
+      const winner = hasScore ? (sA > sB ? aId : sB > sA ? bId : null) : null;
+      league.push({
+        id: `match-league-${li}`,
+        group_name: groupOf(r.groupRaw),
+        team_a_id: aId,
+        team_b_id: bId,
+        team_a_score: sA,
+        team_b_score: sB,
+        winner_id: winner,
+        is_completed: hasScore,
+        stage: 'LEAGUE',
+        status: hasScore ? 'COMPLETED' : 'UPCOMING',
+        match_date: parseWhen(r.date, r.time, li - 1),
+      });
+    }
+
+    // Standard knockout bracket; borrow dates from any KO rows provided.
+    const ko = generateKnockoutPlaceholders();
+    const byStage: Record<'QF' | 'SF' | 'FINAL', typeof koRows> = { QF: [], SF: [], FINAL: [] };
+    for (const r of koRows) byStage[r.kind].push(r);
+    let qi = 0;
+    let si = 0;
+    for (const m of ko) {
+      if (m.stage === 'QF' && byStage.QF[qi]) m.match_date = parseWhen(byStage.QF[qi].date, byStage.QF[qi++].time);
+      else if (m.stage === 'SF' && byStage.SF[si]) m.match_date = parseWhen(byStage.SF[si].date, byStage.SF[si++].time);
+      else if (m.stage === 'FINAL' && byStage.FINAL[0]) m.match_date = parseWhen(byStage.FINAL[0].date, byStage.FINAL[0].time);
+    }
+
+    state.teams = teams;
+    state.matches = getResolvedKnockouts(teams, [...league, ...ko], pointsFromSettings(state.settings));
   });
 }
 

@@ -11,7 +11,6 @@ const EVENT_LINKS = [
   { name: 'Fixtures', path: '/fixtures' },
   { name: 'Standings', path: '/standings' },
   { name: 'Knockout', path: '/knockout' },
-  { name: 'Teams', path: '/teams' },
   { name: 'Stats', path: '/stats' },
 ];
 
@@ -90,6 +89,7 @@ export default function Navbar() {
               </AnimatePresence>
             </div>
 
+            <NavItem href="/teams" label="Teams" active={pathname === '/teams'} />
             <NavItem href="/news" label="News" active={pathname === '/news'} />
           </div>
 
@@ -131,7 +131,7 @@ export default function Navbar() {
             className="md:hidden border-t border-white/8 bg-[#0a0a0e] overflow-hidden"
           >
             <div className="px-3 py-3 space-y-1">
-              {[...PRIMARY_LINKS.slice(0, 1), ...EVENT_LINKS, ...PRIMARY_LINKS.slice(1)].map((l) => {
+              {[...PRIMARY_LINKS.slice(0, 1), ...EVENT_LINKS, { name: 'Teams', path: '/teams' }, ...PRIMARY_LINKS.slice(1)].map((l) => {
                 const active = pathname === l.path;
                 return (
                   <Link

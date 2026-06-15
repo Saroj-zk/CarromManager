@@ -17,6 +17,7 @@ import {
   MatchStatus,
 } from '../lib/types';
 import { calculateStats, pointsFromSettings } from '../lib/store';
+import type { ScheduleRow } from '../lib/serverStore';
 
 interface MutationResult {
   ok: boolean;
@@ -65,7 +66,9 @@ interface TournamentContextType {
     players?: string[]
   ) => Promise<MutationResult>;
   resetTournamentData: () => Promise<MutationResult>;
+  resetEntireTournament: () => Promise<MutationResult>;
   importData: (data: Partial<TournamentState>) => Promise<MutationResult>;
+  importSchedule: (rows: ScheduleRow[]) => Promise<MutationResult>;
   generateBracket: () => Promise<MutationResult>;
   setBracketTeams: (matchId: string, teamAId: string, teamBId: string) => Promise<MutationResult>;
   refreshData: () => Promise<void>;
@@ -243,8 +246,18 @@ export function TournamentProvider({ children }: { children: React.ReactNode }) 
     [adminPost]
   );
 
+  const resetEntireTournament = useCallback(
+    () => adminPost('reset:full'),
+    [adminPost]
+  );
+
   const importData = useCallback(
     (data: Partial<TournamentState>) => adminPost('import', data),
+    [adminPost]
+  );
+
+  const importSchedule = useCallback(
+    (rows: ScheduleRow[]) => adminPost('import:schedule', { rows }),
     [adminPost]
   );
 
@@ -277,7 +290,9 @@ export function TournamentProvider({ children }: { children: React.ReactNode }) 
         deleteNews,
         updateTeam,
         resetTournamentData,
+        resetEntireTournament,
         importData,
+        importSchedule,
         generateBracket,
         setBracketTeams,
         refreshData,
