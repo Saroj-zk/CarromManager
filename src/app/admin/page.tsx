@@ -4,6 +4,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useTournament } from '@/context/TournamentContext';
 import Navbar from '@/components/Navbar';
 import SiteFooter from '@/components/SiteFooter';
+import { pointsFromSettings } from '@/lib/store';
 import { MatchStatus } from '@/lib/types';
 import {
   Lock,
@@ -70,6 +71,11 @@ export default function Admin() {
   const [matchStatus, setMatchStatus] = useState<MatchStatus>('UPCOMING');
   const [matchDate, setMatchDate] = useState('');
   const [scoreMessage, setScoreMessage] = useState('');
+  const [matchGroupFilter, setMatchGroupFilter] = useState<'ALL' | 'A' | 'B' | 'C' | 'D' | 'KO'>('ALL');
+  const [matchStatusFilter, setMatchStatusFilter] = useState<'ALL' | 'UPCOMING' | 'LIVE' | 'COMPLETED'>('ALL');
+
+  // Team filter
+  const [teamGroupFilter, setTeamGroupFilter] = useState<'ALL' | 'A' | 'B' | 'C' | 'D'>('ALL');
 
   // News
   const [newsTitle, setNewsTitle] = useState('');
@@ -157,14 +163,12 @@ export default function Admin() {
     else setScoreB((s) => Math.max(0, Math.min(99, s + delta)));
   };
 
-  // One-click result: ensure the chosen side wins, mark completed, save now.
+  // One-click result. A clean win is recorded 2–0 (the winner takes the points);
+  // a draw is 1–1. Marks the match completed and saves immediately.
   const quickResult = async (winner: 'A' | 'B' | 'DRAW') => {
     if (!selectedMatchId) return;
-    let a = scoreA;
-    let b = scoreB;
-    if (winner === 'A') { if (a <= b) a = b + 1; }
-    else if (winner === 'B') { if (b <= a) b = a + 1; }
-    else { const m = Math.max(a, b); a = m; b = m; }
+    const a = winner === 'A' ? 2 : winner === 'DRAW' ? 1 : 0;
+    const b = winner === 'B' ? 2 : winner === 'DRAW' ? 1 : 0;
     setScoreA(a);
     setScoreB(b);
     setMatchStatus('COMPLETED');
@@ -343,6 +347,33 @@ export default function Admin() {
 
   const selectedMatch = matches.find((m) => m.id === selectedMatchId);
 
+  // Filtered fixture list for the Match Editor dropdown.
+  const filteredMatches = matches.filter((m) => {
+    const groupOk =
+      matchGroupFilter === 'ALL'
+        ? true
+        : matchGroupFilter === 'KO'
+        ? m.stage !== 'LEAGUE'
+        : m.stage === 'LEAGUE' && m.group_name === matchGroupFilter;
+    const statusOk = matchStatusFilter === 'ALL' || m.status === matchStatusFilter;
+    return groupOk && statusOk;
+  });
+
+  // Filtered team list for the Team Profiles dropdown.
+  const filteredTeams = teams.filter((t) => teamGroupFilter === 'ALL' || t.group_name === teamGroupFilter);
+
+  // Winner/loser highlight state for the quick-result buttons.
+  const isCompleted = matchStatus === 'COMPLETED';
+  const aWins = isCompleted && scoreA > scoreB;
+  const bWins = isCompleted && scoreB > scoreA;
+  const isDrawn = isCompleted && scoreA === scoreB;
+  const winBtnClass = (winState: boolean, loseState: boolean) =>
+    winState
+      ? 'bg-success/25 text-success border-success/50'
+      : loseState
+      ? 'bg-danger/20 text-danger border-danger/50'
+      : 'bg-[#1b1d24] text-gray-300 border-white/10 hover:bg-[#23252e]';
+
   // ── Dashboard ────────────────────────────────────────────────────────────
   return (
     <div className="flex flex-col min-h-screen" style={{ background: 'var(--background)' }}>
@@ -376,11 +407,35 @@ export default function Admin() {
                 <Edit3 className="h-4.5 w-4.5 text-accent" /> Match Editor
               </h3>
               <form onSubmit={handleSaveScore} className="space-y-5">
+                {/* Filters */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className={LABEL} style={labelStyle}>Filter · Stage</label>
+                    <select value={matchGroupFilter} onChange={(e) => setMatchGroupFilter(e.target.value as typeof matchGroupFilter)} className={INPUT}>
+                      <option value="ALL">All Stages</option>
+                      <option value="A">Group A</option>
+                      <option value="B">Group B</option>
+                      <option value="C">Group C</option>
+                      <option value="D">Group D</option>
+                      <option value="KO">Knockouts</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className={LABEL} style={labelStyle}>Filter · Status</label>
+                    <select value={matchStatusFilter} onChange={(e) => setMatchStatusFilter(e.target.value as typeof matchStatusFilter)} className={INPUT}>
+                      <option value="ALL">All Statuses</option>
+                      <option value="UPCOMING">Upcoming</option>
+                      <option value="LIVE">Live</option>
+                      <option value="COMPLETED">Completed</option>
+                    </select>
+                  </div>
+                </div>
+
                 <div>
-                  <label className={LABEL} style={labelStyle}>Select Fixture</label>
+                  <label className={LABEL} style={labelStyle}>Select Fixture ({filteredMatches.length})</label>
                   <select value={selectedMatchId} onChange={(e) => handleSelectMatch(e.target.value)} className={INPUT}>
-                    <option value="" disabled>-- Select a Match --</option>
-                    {matches.map((m) => {
+                    <option value="">-- Select a Match --</option>
+                    {filteredMatches.map((m) => {
                       const stageLabel = m.stage === 'LEAGUE' ? `Group ${m.group_name}` : m.stage;
                       return (
                         <option key={m.id} value={m.id}>
@@ -393,39 +448,59 @@ export default function Admin() {
 
                 {selectedMatch && (
                   <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-5 border-t border-white/8 pt-5">
-                    {/* Score steppers */}
-                    <div className="grid grid-cols-2 gap-4">
-                      {(['A', 'B'] as const).map((side) => {
-                        const id = side === 'A' ? selectedMatch.team_a_id : selectedMatch.team_b_id;
-                        const val = side === 'A' ? scoreA : scoreB;
-                        return (
-                          <div key={side} className="bg-[#0f1015] border border-white/8 rounded-xl p-3 text-center">
-                            <div className="text-[10px] font-bold uppercase truncate mb-2" style={labelStyle}>{getTeamName(id)}</div>
-                            <div className="flex items-center justify-center gap-3">
-                              <button type="button" aria-label="decrease" onClick={() => bump(side, -1)} className="h-9 w-9 rounded-md bg-[#1b1d24] border border-white/10 text-white text-xl font-black leading-none hover:bg-[#23252e]">−</button>
-                              <span className="font-mono font-black text-2xl text-white w-10">{val}</span>
-                              <button type="button" aria-label="increase" onClick={() => bump(side, 1)} className="h-9 w-9 rounded-md bg-[#1b1d24] border border-white/10 text-white text-xl font-black leading-none hover:bg-[#23252e]">+</button>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-
-                    {/* One-click result */}
+                    {/* Winner picker — click a team to mark the winner (green); the other turns red */}
                     <div>
-                      <label className={LABEL} style={labelStyle}>Quick Result · saves instantly</label>
-                      <div className="grid grid-cols-3 gap-2">
-                        <button type="button" onClick={() => quickResult('A')} className="py-2.5 px-2 rounded-md bg-success/15 text-success border border-success/30 text-[11px] font-black uppercase tracking-wide hover:bg-success/25 truncate">
-                          {getTeamName(selectedMatch.team_a_id)} won
+                      <label className={LABEL} style={labelStyle}>Pick the winner · saves instantly</label>
+                      <div className="grid grid-cols-[1fr_auto_1fr] gap-2 items-stretch">
+                        <button
+                          type="button"
+                          onClick={() => quickResult('A')}
+                          className={`py-3 px-2 rounded-md border text-xs font-black uppercase tracking-wide transition-all truncate ${winBtnClass(aWins, bWins)}`}
+                        >
+                          {getTeamName(selectedMatch.team_a_id)}
                         </button>
-                        <button type="button" onClick={() => quickResult('DRAW')} className="py-2.5 px-2 rounded-md bg-[#1b1d24] text-gray-300 border border-white/10 text-[11px] font-black uppercase tracking-wide hover:bg-[#23252e]">
+                        <button
+                          type="button"
+                          onClick={() => quickResult('DRAW')}
+                          className={`py-3 px-3 rounded-md border text-[11px] font-black uppercase tracking-wide transition-all ${
+                            isDrawn ? 'bg-accent/20 text-accent border-accent/50' : 'bg-[#1b1d24] text-gray-400 border-white/10 hover:bg-[#23252e]'
+                          }`}
+                        >
                           Draw
                         </button>
-                        <button type="button" onClick={() => quickResult('B')} className="py-2.5 px-2 rounded-md bg-success/15 text-success border border-success/30 text-[11px] font-black uppercase tracking-wide hover:bg-success/25 truncate">
-                          {getTeamName(selectedMatch.team_b_id)} won
+                        <button
+                          type="button"
+                          onClick={() => quickResult('B')}
+                          className={`py-3 px-2 rounded-md border text-xs font-black uppercase tracking-wide transition-all truncate ${winBtnClass(bWins, aWins)}`}
+                        >
+                          {getTeamName(selectedMatch.team_b_id)}
                         </button>
                       </div>
+                      <p className="text-[10px] mt-1.5" style={labelStyle}>A win awards {pointsFromSettings(settings).win} points.</p>
                     </div>
+
+                    {/* Optional exact board scores (affects Board Difference) */}
+                    <details className="group">
+                      <summary className="cursor-pointer text-[10px] font-black uppercase tracking-widest list-none flex items-center gap-1.5" style={labelStyle}>
+                        <Plus className="h-3 w-3 group-open:rotate-45 transition-transform" /> Set exact board scores (optional)
+                      </summary>
+                      <div className="grid grid-cols-2 gap-4 mt-3">
+                        {(['A', 'B'] as const).map((side) => {
+                          const id = side === 'A' ? selectedMatch.team_a_id : selectedMatch.team_b_id;
+                          const val = side === 'A' ? scoreA : scoreB;
+                          return (
+                            <div key={side} className="bg-[#0f1015] border border-white/8 rounded-xl p-3 text-center">
+                              <div className="text-[10px] font-bold uppercase truncate mb-2" style={labelStyle}>{getTeamName(id)}</div>
+                              <div className="flex items-center justify-center gap-3">
+                                <button type="button" aria-label="decrease" onClick={() => bump(side, -1)} className="h-9 w-9 rounded-md bg-[#1b1d24] border border-white/10 text-white text-xl font-black leading-none hover:bg-[#23252e]">−</button>
+                                <span className="font-mono font-black text-2xl text-white w-10">{val}</span>
+                                <button type="button" aria-label="increase" onClick={() => bump(side, 1)} className="h-9 w-9 rounded-md bg-[#1b1d24] border border-white/10 text-white text-xl font-black leading-none hover:bg-[#23252e]">+</button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </details>
 
                     {/* Status buttons */}
                     <div>
@@ -533,14 +608,26 @@ export default function Admin() {
                 <Users className="h-4.5 w-4.5 text-accent" /> Team Profiles
               </h3>
               <form onSubmit={handleSaveTeam} className="space-y-5">
-                <div>
-                  <label className={LABEL} style={labelStyle}>Select Team</label>
-                  <select value={selectedTeamId} onChange={(e) => handleSelectTeam(e.target.value)} className={INPUT}>
-                    <option value="" disabled>-- Select a Team --</option>
-                    {teams.map((t) => (
-                      <option key={t.id} value={t.id}>[{t.code}] {t.name} (Group {t.group_name})</option>
-                    ))}
-                  </select>
+                <div className="grid grid-cols-[auto_1fr] gap-2 items-end">
+                  <div>
+                    <label className={LABEL} style={labelStyle}>Group</label>
+                    <select value={teamGroupFilter} onChange={(e) => setTeamGroupFilter(e.target.value as typeof teamGroupFilter)} className={INPUT}>
+                      <option value="ALL">All</option>
+                      <option value="A">A</option>
+                      <option value="B">B</option>
+                      <option value="C">C</option>
+                      <option value="D">D</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className={LABEL} style={labelStyle}>Select Team ({filteredTeams.length})</label>
+                    <select value={selectedTeamId} onChange={(e) => handleSelectTeam(e.target.value)} className={INPUT}>
+                      <option value="">-- Select a Team --</option>
+                      {filteredTeams.map((t) => (
+                        <option key={t.id} value={t.id}>[{t.code}] {t.name} (Group {t.group_name})</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
                 {selectedTeamId && (
                   <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-4 border-t border-white/8 pt-5">
