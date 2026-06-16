@@ -4,13 +4,11 @@ import React, { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { useTournament } from '@/context/TournamentContext';
 import { Match, Team } from '@/lib/types';
-import { ChevronLeft, ChevronRight, Calendar, ArrowRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Calendar, Clock, ArrowRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 type Display = 'LIVE' | 'COMPLETED' | 'UPCOMING';
 
-// Derive the badge from the clock: an uncompleted match flips to LIVE the
-// moment its scheduled start time passes (or when the admin marks it LIVE).
 function displayStatus(m: Match, now: number): Display {
   if (m.is_completed) return 'COMPLETED';
   if (m.status === 'LIVE') return 'LIVE';
@@ -18,9 +16,7 @@ function displayStatus(m: Match, now: number): Display {
   return 'UPCOMING';
 }
 
-const PLACEHOLDER: Record<string, string> = {
-  qf: 'Quarterfinalist', sf: 'Semifinalist', final: 'Finalist',
-};
+const PLACEHOLDER: Record<string, string> = { qf: 'Quarterfinalist', sf: 'Semifinalist', final: 'Finalist' };
 
 function StatusBadge({ s, big = false }: { s: Display; big?: boolean }) {
   const size = big ? 'text-xs' : 'text-[10px]';
@@ -34,11 +30,19 @@ function StatusBadge({ s, big = false }: { s: Display; big?: boolean }) {
   return <span className={`${size} font-black uppercase tracking-wider`} style={{ color: 'var(--faint)' }}>Upcoming</span>;
 }
 
+function chunk<T>(arr: T[], n: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n));
+  return out;
+}
+
 export default function MatchCarousel() {
   const { matches, teams } = useTournament();
   const [now, setNow] = useState(() => Date.now());
   const [active, setActive] = useState(0);
   const [paused, setPaused] = useState(false);
+  const [todayPage, setTodayPage] = useState(0);
+  const [todayPaused, setTodayPaused] = useState(false);
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 30000);
@@ -54,28 +58,25 @@ export default function MatchCarousel() {
     return teamOf(id)?.name || 'TBD';
   };
 
-  const { slides, today } = useMemo(() => {
+  const { slides, todayPages } = useMemo(() => {
     const startOfDay = (t: number) => { const d = new Date(t); d.setHours(0, 0, 0, 0); return d.getTime(); };
     const today0 = startOfDay(now);
     const tom0 = today0 + 86400000;
-    const dayAfter = tom0 + 86400000;
     const ts = (m: Match) => new Date(m.match_date).getTime();
 
-    const recent = matches.filter((m) => m.is_completed).sort((a, b) => ts(b) - ts(a)).slice(0, 12);
-    const todayList = matches.filter((m) => ts(m) >= today0 && ts(m) < tom0).sort((a, b) => ts(a) - ts(b));
-    const tomorrow = matches.filter((m) => ts(m) >= tom0 && ts(m) < dayAfter).sort((a, b) => ts(a) - ts(b));
-    const upcoming = matches.filter((m) => !m.is_completed && ts(m) >= now).sort((a, b) => ts(a) - ts(b)).slice(0, 12);
+    // Partition strictly by day so nothing is duplicated across sections.
+    const completed = matches.filter((m) => m.is_completed && ts(m) < today0).sort((a, b) => ts(b) - ts(a)).slice(0, 16);
+    const upcoming = matches.filter((m) => !m.is_completed && ts(m) >= tom0).sort((a, b) => ts(a) - ts(b)).slice(0, 16);
+    const today = matches.filter((m) => ts(m) >= today0 && ts(m) < tom0).sort((a, b) => ts(a) - ts(b));
 
     const out: { key: string; label: string; sub: string; matches: Match[] }[] = [];
-    if (recent.length) out.push({ key: 'recent', label: 'Recent Results', sub: 'Latest completed matches', matches: recent });
-    if (tomorrow.length) out.push({ key: 'tomorrow', label: 'Tomorrow', sub: 'Coming up next', matches: tomorrow });
-    if (!tomorrow.length && upcoming.length) out.push({ key: 'upcoming', label: 'Upcoming Matches', sub: 'Next on the schedule', matches: upcoming });
-    return { slides: out, today: todayList };
+    if (completed.length) out.push({ key: 'completed', label: 'Completed Matches', sub: 'Latest results', matches: completed });
+    if (upcoming.length) out.push({ key: 'upcoming', label: 'Upcoming Matches', sub: 'Coming up on the schedule', matches: upcoming });
+    return { slides: out, todayPages: chunk(today, 2) };
   }, [matches, now]);
 
-  useEffect(() => {
-    if (active >= slides.length) setActive(0);
-  }, [slides.length, active]);
+  useEffect(() => { if (active >= slides.length) setActive(0); }, [slides.length, active]);
+  useEffect(() => { if (todayPage >= todayPages.length) setTodayPage(0); }, [todayPages.length, todayPage]);
 
   useEffect(() => {
     if (paused || slides.length <= 1) return;
@@ -83,8 +84,17 @@ export default function MatchCarousel() {
     return () => clearInterval(id);
   }, [paused, slides.length]);
 
-  if (slides.length === 0 && today.length === 0) return null;
+  useEffect(() => {
+    if (todayPaused || todayPages.length <= 1) return;
+    const id = setInterval(() => setTodayPage((i) => (i + 1) % todayPages.length), 6000);
+    return () => clearInterval(id);
+  }, [todayPaused, todayPages.length]);
+
+  if (slides.length === 0 && todayPages.length === 0) return null;
   const current = slides.length ? slides[Math.min(active, slides.length - 1)] : null;
+  const currentToday = todayPages.length ? todayPages[Math.min(todayPage, todayPages.length - 1)] : [];
+
+  const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
   // ── Carousel mini-card ─────────────────────────────────────────────────
   const TeamRow = ({ id, score, win, show }: { id: string; score: number; win: boolean; show: boolean }) => {
@@ -167,8 +177,8 @@ export default function MatchCarousel() {
           <BigTeam id={m.team_b_id} score={m.team_b_score} win={winB} show={showScore} />
         </div>
         <div className="mt-4 pt-3 border-t border-white/8 flex items-center gap-1.5 text-xs" style={{ color: 'var(--faint)' }}>
-          <Calendar className="h-3.5 w-3.5" />
-          {new Date(m.match_date).toLocaleString([], { weekday: 'long', hour: '2-digit', minute: '2-digit' })}
+          <Clock className="h-3.5 w-3.5" />
+          {s === 'COMPLETED' ? 'Played' : 'Starts'} · {fmtTime(m.match_date)}
         </div>
       </div>
     );
@@ -177,7 +187,7 @@ export default function MatchCarousel() {
   return (
     <section className="border-b border-white/8">
       <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-10">
-        {/* Carousel: recent results & upcoming */}
+        {/* Top carousel: completed & upcoming */}
         {current && (
           <div onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)}>
             <div className="flex items-center justify-between mb-4">
@@ -188,12 +198,8 @@ export default function MatchCarousel() {
               <div className="flex items-center gap-3">
                 <div className="hidden sm:flex items-center gap-1.5">
                   {slides.map((s, i) => (
-                    <button
-                      key={s.key}
-                      aria-label={s.label}
-                      onClick={() => setActive(i)}
-                      className={`h-1.5 rounded-full transition-all ${i === active ? 'w-5 bg-accent' : 'w-1.5 bg-white/20 hover:bg-white/40'}`}
-                    />
+                    <button key={s.key} aria-label={s.label} onClick={() => setActive(i)}
+                      className={`h-1.5 rounded-full transition-all ${i === active ? 'w-5 bg-accent' : 'w-1.5 bg-white/20 hover:bg-white/40'}`} />
                   ))}
                 </div>
                 <div className="flex items-center gap-1.5">
@@ -208,14 +214,8 @@ export default function MatchCarousel() {
             </div>
 
             <AnimatePresence mode="wait">
-              <motion.div
-                key={current.key}
-                initial={{ opacity: 0, x: 24 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -24 }}
-                transition={{ duration: 0.3 }}
-                className="flex gap-4 overflow-x-auto scrollbar-none pb-1"
-              >
+              <motion.div key={current.key} initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -24 }} transition={{ duration: 0.3 }}
+                className="flex gap-4 overflow-x-auto scrollbar-none pb-1">
                 {current.matches.map((m) => <Card key={m.id} m={m} />)}
                 <Link href="/fixtures" className="surface rounded-xl w-[150px] shrink-0 flex flex-col items-center justify-center gap-2 text-gray-400 hover:text-white hover:border-white/20 transition-colors">
                   <ArrowRight className="h-5 w-5 text-accent" />
@@ -226,21 +226,45 @@ export default function MatchCarousel() {
           </div>
         )}
 
-        {/* Today's matches — featured as big cards */}
-        {today.length > 0 && (
-          <div>
+        {/* Today's matches — moving carousel, 2 big cards per slide */}
+        {todayPages.length > 0 && (
+          <div onMouseEnter={() => setTodayPaused(true)} onMouseLeave={() => setTodayPaused(false)}>
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h2 className="font-display font-black text-lg text-white uppercase tracking-wide">Today&apos;s Matches</h2>
                 <p className="text-xs" style={{ color: 'var(--faint)' }}>Live &amp; scheduled today</p>
               </div>
-              <Link href="/fixtures" className="inline-flex items-center gap-1 text-accent hover:text-[var(--gold-bright)] text-xs font-black uppercase tracking-wider transition-colors">
-                Full Schedule <ArrowRight className="h-3.5 w-3.5" />
-              </Link>
+              <div className="flex items-center gap-3">
+                {todayPages.length > 1 && (
+                  <div className="hidden sm:flex items-center gap-1.5">
+                    {todayPages.map((_, i) => (
+                      <button key={i} aria-label={`Page ${i + 1}`} onClick={() => setTodayPage(i)}
+                        className={`h-1.5 rounded-full transition-all ${i === todayPage ? 'w-5 bg-accent' : 'w-1.5 bg-white/20 hover:bg-white/40'}`} />
+                    ))}
+                  </div>
+                )}
+                {todayPages.length > 1 && (
+                  <div className="flex items-center gap-1.5">
+                    <button aria-label="Previous" onClick={() => setTodayPage((i) => (i - 1 + todayPages.length) % todayPages.length)} className="p-1.5 rounded-md bg-[#15161c] border border-white/10 text-gray-300 hover:text-white hover:bg-[#1b1d24] transition-colors">
+                      <ChevronLeft className="h-4 w-4" />
+                    </button>
+                    <button aria-label="Next" onClick={() => setTodayPage((i) => (i + 1) % todayPages.length)} className="p-1.5 rounded-md bg-[#15161c] border border-white/10 text-gray-300 hover:text-white hover:bg-[#1b1d24] transition-colors">
+                      <ChevronRight className="h-4 w-4" />
+                    </button>
+                  </div>
+                )}
+                <Link href="/fixtures" className="inline-flex items-center gap-1 text-accent hover:text-[var(--gold-bright)] text-xs font-black uppercase tracking-wider transition-colors">
+                  Full Schedule <ArrowRight className="h-3.5 w-3.5" />
+                </Link>
+              </div>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {today.map((m) => <BigCard key={m.id} m={m} />)}
-            </div>
+
+            <AnimatePresence mode="wait">
+              <motion.div key={todayPage} initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -24 }} transition={{ duration: 0.3 }}
+                className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {currentToday.map((m) => <BigCard key={m.id} m={m} />)}
+              </motion.div>
+            </AnimatePresence>
           </div>
         )}
       </div>

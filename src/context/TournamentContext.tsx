@@ -15,6 +15,7 @@ import {
   TournamentSettings,
   TournamentStats,
   MatchStatus,
+  GroupName,
 } from '../lib/types';
 import { calculateStats, pointsFromSettings } from '../lib/store';
 import type { ScheduleRow } from '../lib/serverStore';
@@ -63,10 +64,12 @@ interface TournamentContextType {
     id: string,
     name: string,
     logoUrl: string,
-    players?: string[]
+    players?: string[],
+    group?: GroupName
   ) => Promise<MutationResult>;
   resetTournamentData: () => Promise<MutationResult>;
   resetEntireTournament: () => Promise<MutationResult>;
+  newTournament: () => Promise<MutationResult>;
   importData: (data: Partial<TournamentState>) => Promise<MutationResult>;
   importSchedule: (rows: ScheduleRow[]) => Promise<MutationResult>;
   generateBracket: () => Promise<MutationResult>;
@@ -236,8 +239,8 @@ export function TournamentProvider({ children }: { children: React.ReactNode }) 
   );
 
   const updateTeam = useCallback(
-    (id: string, name: string, logoUrl: string, players?: string[]) =>
-      adminPost('team', { id, name, logoUrl, players }),
+    (id: string, name: string, logoUrl: string, players?: string[], group?: GroupName) =>
+      adminPost('team', { id, name, logoUrl, players, group }),
     [adminPost]
   );
 
@@ -248,6 +251,11 @@ export function TournamentProvider({ children }: { children: React.ReactNode }) 
 
   const resetEntireTournament = useCallback(
     () => adminPost('reset:full'),
+    [adminPost]
+  );
+
+  const newTournament = useCallback(
+    () => adminPost('tournament:new'),
     [adminPost]
   );
 
@@ -291,6 +299,7 @@ export function TournamentProvider({ children }: { children: React.ReactNode }) 
         updateTeam,
         resetTournamentData,
         resetEntireTournament,
+        newTournament,
         importData,
         importSchedule,
         generateBracket,

@@ -357,9 +357,11 @@ export async function updateTeam(
   id: string,
   name: string,
   logoUrl: string,
-  players?: string[]
+  players?: string[],
+  group?: GroupName
 ): Promise<TournamentState> {
   return mutate((state) => {
+    const validGroup = group && (['A', 'B', 'C', 'D'] as string[]).includes(group) ? group : undefined;
     state.teams = state.teams.map((t) =>
       t.id === id
         ? {
@@ -369,10 +371,21 @@ export async function updateTeam(
             players: Array.isArray(players)
               ? players.map((p) => String(p).trim()).filter(Boolean)
               : t.players,
+            group_name: validGroup || t.group_name,
           }
         : t
     );
   });
+}
+
+/** Start a brand-new, empty tournament (no teams, fixtures or news). */
+export async function newTournament(): Promise<TournamentState> {
+  return mutate((state) => ({
+    teams: [],
+    matches: [],
+    news: [],
+    settings: { ...state.settings },
+  }));
 }
 
 // Placeholder slot ids for a knockout match, e.g. match-qf1 → t-qf1-a / t-qf1-b.

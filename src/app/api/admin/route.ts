@@ -12,9 +12,11 @@ import {
   generateBracket,
   setBracketTeams,
   fullReset,
+  newTournament,
   importScheduleRows,
   type ScheduleRow,
 } from '@/lib/serverStore';
+import type { GroupName } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -90,18 +92,20 @@ export async function POST(request: NextRequest) {
     }
 
     case 'team': {
-      const { id, name, logoUrl, players } = payload as {
+      const { id, name, logoUrl, players, group } = payload as {
         id: string;
         name: string;
         logoUrl: string;
         players?: string[];
+        group?: GroupName;
       };
       if (!id) return json({ error: 'id is required.' }, 400);
       await updateTeam(
         id,
         String(name ?? ''),
         String(logoUrl ?? ''),
-        Array.isArray(players) ? players : undefined
+        Array.isArray(players) ? players : undefined,
+        group
       );
       break;
     }
@@ -113,6 +117,11 @@ export async function POST(request: NextRequest) {
 
     case 'reset:full': {
       await fullReset();
+      break;
+    }
+
+    case 'tournament:new': {
+      await newTournament();
       break;
     }
 

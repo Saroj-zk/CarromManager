@@ -57,6 +57,7 @@ export default function Admin() {
     updateTeam,
     resetTournamentData,
     resetEntireTournament,
+    newTournament,
     importData,
     importSchedule,
     generateBracket,
@@ -94,6 +95,7 @@ export default function Admin() {
   const [teamName, setTeamName] = useState('');
   const [teamLogo, setTeamLogo] = useState('');
   const [teamPlayers, setTeamPlayers] = useState<string[]>([]);
+  const [teamGroup, setTeamGroup] = useState<'A' | 'B' | 'C' | 'D'>('A');
   const [teamMessage, setTeamMessage] = useState('');
 
   // Scoring rules
@@ -192,6 +194,7 @@ export default function Admin() {
       setTeamName(team.name);
       setTeamLogo(team.logo_url || '');
       setTeamPlayers(team.players && team.players.length ? [...team.players] : ['', '', '', '']);
+      setTeamGroup(team.group_name);
     }
   };
 
@@ -199,7 +202,7 @@ export default function Admin() {
     e.preventDefault();
     if (!selectedTeamId) return;
     const cleaned = teamPlayers.map((p) => p.trim()).filter(Boolean);
-    const result = await updateTeam(selectedTeamId, teamName, teamLogo, cleaned);
+    const result = await updateTeam(selectedTeamId, teamName, teamLogo, cleaned, teamGroup);
     setTeamMessage(result.ok ? 'Team updated successfully!' : result.error || 'Failed.');
     setTimeout(() => setTeamMessage(''), 3000);
   };
@@ -290,6 +293,14 @@ export default function Admin() {
     setSelectedMatchId('');
     setSelectedTeamId('');
     alert(result.ok ? 'Tournament fully reset to defaults.' : result.error || 'Failed to reset.');
+  };
+
+  const handleNewTournament = async () => {
+    if (!confirm('Start a brand-new EMPTY tournament? This clears all teams, fixtures and announcements. Use “Import Schedule” afterwards to build it. This cannot be undone.')) return;
+    const result = await newTournament();
+    setSelectedMatchId('');
+    setSelectedTeamId('');
+    alert(result.ok ? 'New empty tournament created. Use Import Schedule (above) to add teams & fixtures.' : result.error || 'Failed.');
   };
 
   const handleReset = async () => {
@@ -760,10 +771,24 @@ export default function Admin() {
                         <input type="text" value={teamName} onChange={(e) => setTeamName(e.target.value)} className={INPUT} />
                       </div>
                     </div>
-                    <div>
-                      <label className="block text-[9px] font-bold uppercase mb-1.5" style={labelStyle}>Logo URL</label>
-                      <input type="url" value={teamLogo} onChange={(e) => setTeamLogo(e.target.value)} placeholder="https://…" className={INPUT} />
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[9px] font-bold uppercase mb-1.5" style={labelStyle}>Group</label>
+                        <select value={teamGroup} onChange={(e) => setTeamGroup(e.target.value as typeof teamGroup)} className={INPUT}>
+                          <option value="A">Group A</option>
+                          <option value="B">Group B</option>
+                          <option value="C">Group C</option>
+                          <option value="D">Group D</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-[9px] font-bold uppercase mb-1.5" style={labelStyle}>Logo URL</label>
+                        <input type="url" value={teamLogo} onChange={(e) => setTeamLogo(e.target.value)} placeholder="https://…" className={INPUT} />
+                      </div>
                     </div>
+                    <p className="text-[10px] -mt-1" style={labelStyle}>
+                      Moving a team to another group? Run <span className="text-danger font-bold">Reset Scores</span> afterwards to rebuild fixtures for the new groups.
+                    </p>
 
                     {/* Roster editor */}
                     <div>
@@ -866,17 +891,21 @@ export default function Admin() {
                   {importMessage && <p className="text-[10px] font-bold text-center text-accent">{importMessage}</p>}
 
                   <span className="text-[10px] font-black uppercase tracking-widest mt-2" style={labelStyle}>Danger Zone</span>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <button onClick={handleReset} className="w-full py-2.5 rounded-md bg-danger/10 hover:bg-danger/20 text-danger border border-danger/30 font-display font-black text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2">
                       <RefreshCw className="h-3.5 w-3.5" /> Reset Scores
                     </button>
                     <button onClick={handleFullReset} className="w-full py-2.5 rounded-md bg-danger/20 hover:bg-danger/30 text-danger border border-danger/50 font-display font-black text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2">
-                      <AlertTriangle className="h-3.5 w-3.5" /> Reset Entire Tournament
+                      <AlertTriangle className="h-3.5 w-3.5" /> Reset to Default
+                    </button>
+                    <button onClick={handleNewTournament} className="w-full py-2.5 rounded-md bg-danger/20 hover:bg-danger/30 text-danger border border-danger/50 font-display font-black text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2">
+                      <Plus className="h-3.5 w-3.5" /> New Tournament
                     </button>
                   </div>
                   <p className="text-[10px] leading-relaxed" style={labelStyle}>
-                    <span className="text-danger font-bold">Reset Scores</span> clears match results but keeps teams.{' '}
-                    <span className="text-danger font-bold">Reset Entire Tournament</span> wipes everything back to the default seed.
+                    <span className="text-danger font-bold">Reset Scores</span> clears results but keeps teams.{' '}
+                    <span className="text-danger font-bold">Reset to Default</span> restores the built-in 24-team event.{' '}
+                    <span className="text-danger font-bold">New Tournament</span> starts an empty event — then use Import Schedule to build it.
                   </p>
                 </div>
               </div>
