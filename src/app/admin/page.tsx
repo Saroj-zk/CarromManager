@@ -77,6 +77,7 @@ export default function Admin() {
   const [scoreMessage, setScoreMessage] = useState('');
   const [matchGroupFilter, setMatchGroupFilter] = useState<'ALL' | 'A' | 'B' | 'C' | 'D' | 'KO'>('ALL');
   const [matchStatusFilter, setMatchStatusFilter] = useState<'ALL' | 'UPCOMING' | 'LIVE' | 'COMPLETED'>('ALL');
+  const [matchDateFilter, setMatchDateFilter] = useState<string>('ALL');
 
   // Team filter
   const [teamGroupFilter, setTeamGroupFilter] = useState<'ALL' | 'A' | 'B' | 'C' | 'D'>('ALL');
@@ -392,7 +393,6 @@ export default function Admin() {
               <button type="submit" disabled={authBusy} className="w-full py-3 rounded-md btn-gold font-display text-sm uppercase tracking-wider disabled:opacity-60">
                 {authBusy ? 'Checking…' : 'Access Control Room'}
               </button>
-              <p className="text-center text-[10px] font-semibold" style={labelStyle}>Default passcode: PocketMasters2026</p>
             </form>
           </motion.div>
         </main>
@@ -403,6 +403,17 @@ export default function Admin() {
 
   const selectedMatch = matches.find((m) => m.id === selectedMatchId);
 
+  // Local day-key (YYYY-MM-DD) for grouping fixtures by date.
+  const dayKey = (iso: string) => {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '';
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  };
+  const matchDates = Array.from(new Set(matches.map((m) => dayKey(m.match_date)).filter(Boolean))).sort();
+  const fmtDay = (key: string) =>
+    new Date(key + 'T00:00:00').toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+
   // Filtered fixture list for the Match Editor dropdown.
   const filteredMatches = matches.filter((m) => {
     const groupOk =
@@ -412,7 +423,8 @@ export default function Admin() {
         ? m.stage !== 'LEAGUE'
         : m.stage === 'LEAGUE' && m.group_name === matchGroupFilter;
     const statusOk = matchStatusFilter === 'ALL' || m.status === matchStatusFilter;
-    return groupOk && statusOk;
+    const dateOk = matchDateFilter === 'ALL' || dayKey(m.match_date) === matchDateFilter;
+    return groupOk && statusOk && dateOk;
   });
 
   // Filtered team list for the Team Profiles dropdown.
@@ -464,11 +476,11 @@ export default function Admin() {
               </h3>
               <form onSubmit={handleSaveScore} className="space-y-5">
                 {/* Filters */}
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   <div>
-                    <label className={LABEL} style={labelStyle}>Filter · Stage</label>
+                    <label className={LABEL} style={labelStyle}>Filter · Group</label>
                     <select value={matchGroupFilter} onChange={(e) => setMatchGroupFilter(e.target.value as typeof matchGroupFilter)} className={INPUT}>
-                      <option value="ALL">All Stages</option>
+                      <option value="ALL">All Groups</option>
                       <option value="A">Group A</option>
                       <option value="B">Group B</option>
                       <option value="C">Group C</option>
@@ -477,6 +489,15 @@ export default function Admin() {
                     </select>
                   </div>
                   <div>
+                    <label className={LABEL} style={labelStyle}>Filter · Date</label>
+                    <select value={matchDateFilter} onChange={(e) => setMatchDateFilter(e.target.value)} className={INPUT}>
+                      <option value="ALL">All Dates</option>
+                      {matchDates.map((d) => (
+                        <option key={d} value={d}>{fmtDay(d)}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="col-span-2 sm:col-span-1">
                     <label className={LABEL} style={labelStyle}>Filter · Status</label>
                     <select value={matchStatusFilter} onChange={(e) => setMatchStatusFilter(e.target.value as typeof matchStatusFilter)} className={INPUT}>
                       <option value="ALL">All Statuses</option>

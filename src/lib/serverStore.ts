@@ -100,78 +100,130 @@ function buildSeedState(): TournamentState {
   };
 }
 
-async function persist(state: TournamentState): Promise<void> {
+// Optional durable, shared storage (Vercel KV / Upstash Redis REST). When these
+// env vars are present (Vercel KV provisions them automatically), every server
+// instance reads/writes the same record, so admin edits are visible to all
+// visitors. Without them, the local file + in-memory store is used.
+const KV_URL = process.env.KV_REST_API_URL;
+const KV_TOKEN = process.env.KV_REST_API_TOKEN;
+const KV_KEY = 'pocket_masters_state';
+const useKV = !!(KV_URL && KV_TOKEN);
+
+// Coerce any parsed object into a valid, fully-defaulted TournamentState.
+function normalizeState(parsed: Partial<TournamentState> | null | undefined): TournamentState | null {
+  if (!parsed || !Array.isArray(parsed.teams) || !Array.isArray(parsed.matches) || !parsed.settings) {
+    return null;
+  }
+  return {
+    teams: parsed.teams,
+    matches: parsed.matches,
+    news: Array.isArray(parsed.news) ? parsed.news : [],
+    settings: {
+      draw_points_enabled: !!parsed.settings.draw_points_enabled,
+      points_per_win: typeof parsed.settings.points_per_win === 'number' ? parsed.settings.points_per_win : 2,
+      points_per_draw:
+        typeof parsed.settings.points_per_draw === 'number'
+          ? parsed.settings.points_per_draw
+          : parsed.settings.draw_points_enabled
+          ? 1
+          : 0,
+      passcode: parsed.settings.passcode || DEFAULT_PASSCODE,
+      tournament_stage: parsed.settings.tournament_stage || 'LEAGUE',
+    },
+  };
+}
+
+async function kvGet(): Promise<TournamentState | null> {
+  try {
+    const res = await fetch(`${KV_URL}/get/${KV_KEY}`, {
+      headers: { Authorization: `Bearer ${KV_TOKEN}` },
+      cache: 'no-store',
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { result?: string | null };
+    if (!data || data.result == null) return null;
+    return normalizeState(JSON.parse(data.result));
+  } catch (err) {
+    console.warn('[serverStore] KV read failed:', (err as Error).message);
+    return null;
+  }
+}
+
+async function kvSet(state: TournamentState): Promise<void> {
+  try {
+    await fetch(`${KV_URL}/set/${KV_KEY}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${KV_TOKEN}`, 'Content-Type': 'text/plain' },
+      body: JSON.stringify(state),
+    });
+  } catch (err) {
+    console.warn('[serverStore] KV write failed:', (err as Error).message);
+  }
+}
+
+async function persistFile(state: TournamentState): Promise<void> {
   try {
     await fs.mkdir(DATA_DIR, { recursive: true });
     await fs.writeFile(DATA_FILE, JSON.stringify(state, null, 2), 'utf-8');
   } catch (err) {
-    // Read-only / unavailable filesystem (e.g. serverless). Keep serving from
-    // the in-memory cache instead of crashing — edits persist for the lifetime
-    // of the running instance only.
-    console.warn('[serverStore] persist skipped:', (err as Error).message);
+    console.warn('[serverStore] file persist skipped:', (err as Error).message);
   }
 }
 
-async function load(): Promise<TournamentState> {
+async function loadFile(): Promise<TournamentState> {
   if (cache) return cache;
-
   try {
     const raw = await fs.readFile(DATA_FILE, 'utf-8');
-    const parsed = JSON.parse(raw) as Partial<TournamentState>;
-
-    // Be defensive: fall back to a fresh seed if the file is malformed.
-    if (
-      parsed &&
-      Array.isArray(parsed.teams) &&
-      Array.isArray(parsed.matches) &&
-      parsed.settings
-    ) {
-      cache = {
-        teams: parsed.teams,
-        matches: parsed.matches,
-        news: Array.isArray(parsed.news) ? parsed.news : [],
-        settings: {
-          draw_points_enabled: !!parsed.settings.draw_points_enabled,
-          points_per_win:
-            typeof parsed.settings.points_per_win === 'number' ? parsed.settings.points_per_win : 2,
-          points_per_draw:
-            typeof parsed.settings.points_per_draw === 'number'
-              ? parsed.settings.points_per_draw
-              : parsed.settings.draw_points_enabled
-              ? 1
-              : 0,
-          passcode: parsed.settings.passcode || DEFAULT_PASSCODE,
-          tournament_stage: parsed.settings.tournament_stage || 'LEAGUE',
-        },
-      };
+    const norm = normalizeState(JSON.parse(raw));
+    if (norm) {
+      cache = norm;
       return cache;
     }
   } catch {
-    // File doesn't exist yet (first run) — fall through to seeding.
+    // File doesn't exist yet — seed below.
   }
-
   cache = buildSeedState();
-  await persist(cache);
+  await persistFile(cache);
   return cache;
 }
 
+/** Read the canonical state from whichever backend is configured. */
+async function readState(): Promise<TournamentState> {
+  if (useKV) {
+    const kv = await kvGet();
+    if (kv) return kv;
+    const seeded = buildSeedState();
+    await kvSet(seeded);
+    return seeded;
+  }
+  return loadFile();
+}
+
+/** Write the canonical state to whichever backend is configured. */
+async function writeState(state: TournamentState): Promise<void> {
+  if (useKV) {
+    await kvSet(state);
+    return;
+  }
+  cache = state;
+  await persistFile(state);
+}
+
 /**
- * Serialize a mutation: read current state, apply `fn`, persist, update cache.
- * Returns the new state. All writes go through here so they can't interleave.
+ * Serialize a mutation: read current state, apply `fn`, persist. Returns the new
+ * state. Writes within an instance are chained so they can't interleave.
  */
 async function mutate(
   fn: (state: TournamentState) => TournamentState | void
 ): Promise<TournamentState> {
   const run = async (): Promise<TournamentState> => {
-    const current = await load();
+    const current = await readState();
     const draft: TournamentState = JSON.parse(JSON.stringify(current));
     const result = fn(draft) || draft;
-    cache = result;
-    await persist(result);
+    await writeState(result);
     return result;
   };
 
-  // Chain onto the previous write so they run strictly in order.
   const next = writeChain.then(run, run);
   writeChain = next.catch(() => undefined);
   return next;
@@ -181,12 +233,12 @@ async function mutate(
 
 /** Full state for server use (includes the passcode). */
 export async function getState(): Promise<TournamentState> {
-  return load();
+  return readState();
 }
 
 /** State safe to send to the browser — passcode stripped out. */
 export async function getPublicState(): Promise<TournamentState> {
-  const state = await load();
+  const state = await readState();
   return {
     ...state,
     settings: {
@@ -199,7 +251,7 @@ export async function getPublicState(): Promise<TournamentState> {
 }
 
 export async function checkPasscode(passcode: string): Promise<boolean> {
-  const state = await load();
+  const state = await readState();
   return !!passcode && passcode === state.settings.passcode;
 }
 
